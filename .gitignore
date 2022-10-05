@@ -1,0 +1,21 @@
+# Logs
+*.log
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Output of 'npm pack'
+*.tgz
+
+# dotenv environment variables file
+# .env
+# .env.test
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# 
+.tmp
+.DS_Store

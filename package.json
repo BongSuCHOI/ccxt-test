@@ -1,0 +1,30 @@
+{
+	"name": "gizmo",
+	"version": "1.0.0",
+	"description": "Crypto trading bot that uses the CCXT library and TradingView webhooks",
+	"main": "app.js",
+	"dependencies": {
+		"body-parser": "^1.20.0",
+		"ccxt": "^1.95.10",
+		"dotenv": "^16.0.3",
+		"express": "^4.18.1"
+	},
+	"devDependencies": {
+		"nodemon": "^2.0.20"
+	},
+	"scripts": {
+		"start": "node app.js",
+		"dev": "nodemon app.js",
+		"test": "test"
+	},
+	"repository": {
+		"type": "git"
+	},
+	"keywords": [
+		"crypto"
+	],
+	"author": "Joel Foster",
+	"license": "ISC",
+	"bugs": {},
+	"homepage": ""
+}
