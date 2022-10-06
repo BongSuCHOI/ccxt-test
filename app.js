@@ -1,19 +1,13 @@
 const express = require('express');
-const bodyParser = require('body-parser');
 const ccxt = require('ccxt');
 const dotenv = require('dotenv');
 
-//
-// === Setup, config, and exchange initialization ===
-//
-
-// Use .env file for private keys
+// Setup
 dotenv.config();
-
-// Start app with bodyParser
-const app = express().use(bodyParser.json());
+const app = express().use(express.json());
 const PORT = process.env.PORT;
 
+// Connect html, js
 app.get('/', (req, res) => {
 	res.sendFile(__dirname + '/src/index.html');
 });
@@ -24,10 +18,16 @@ app.listen(PORT, () => {
 	console.log(`🚀 Server running on port ${PORT}`);
 });
 
-// Ensure all TradingView webhooks contain the AUTH_ID to authorize trades to be made
+// Catch the webhook
+app.post('/webhook', (req, res) => {
+	// console.log(req.body);
+	handleTrade(req, res);
+});
+
+// Tradingview webhook message에 포함 된 auth_id와 동일한 auth_id
 const AUTH_ID = process.env.AUTH_ID;
 
-// Set the exchange according to the CCXT ID https://github.com/ccxt/ccxt/wiki/Manual
+// Set end variable
 const EXCHANGE = process.env.EXCHANGE;
 const TICKER = process.env.TICKER;
 const TEST_MODE = process.env.TEST_MODE == 'false' ? false : true;
@@ -38,13 +38,15 @@ const LIVE_API_SECRET = process.env.API_SECRET;
 const apiKey = TEST_MODE ? TESTNET_API_KEY : LIVE_API_KEY;
 const apiSecret = TEST_MODE ? TESTNET_API_SECRET : LIVE_API_SECRET;
 
-// Instantiate the exchange
+// Create an exchange instance
 const exchange = new ccxt[EXCHANGE]({
 	apiKey: apiKey,
 	secret: apiSecret,
+	enableRateLimit: true,
 });
+exchange['options']['defaultType'] = 'future';
 
-// Handle authentication in test mode
+// Check test mode
 if (TEST_MODE) {
 	exchange.setSandboxMode(true);
 	console.log('Currently TESTING on', EXCHANGE);
@@ -58,31 +60,11 @@ if (TEST_MODE) {
 	}
 }
 
-//
-// === Webhooks ===
-//
-
-let tdata;
-
-app.get('/asd', (req, res) => {
-	res.json(tdata);
-});
-
-// Catch the webhook and handle the trade
-app.post('/webhook', (req, res) => {
-	handleTrade(req, res);
-});
-
-// For testing the JSON body
-app.post('/test', (req, res) => {
-	// console.log(req.body);
-});
-
-// Checks first to see if the webhook carries a valid safety ID
+// Checks webhook carries a valid ID
 const handleTrade = (req, res) => {
 	let json = req.body;
 	if (json.auth_id === AUTH_ID) {
-		// getBalances();
+		// executeTrade(json);
 		res.status(200).end();
 	} else {
 		console.log('401 UNAUTHORIZED', json);
@@ -91,103 +73,154 @@ const handleTrade = (req, res) => {
 };
 
 //
-// === Custom exchange methods ===
+// === Custom exchange trade methods ===
 //
 
-// ByBit's trailing stop losses can only be set on open positions
-const setBybitTslp = async (lastTradeDirection, trailingStopLossTarget) => {
-	if (trailingStopLossTarget && EXCHANGE == 'bybit') {
-		console.log('setting TSLP after retracement of', trailingStopLossTarget + '...');
-		if (usingBybitUSDT) {
-			let side =
-				lastTradeDirection == 'short'
-					? 'Sell'
-					: lastTradeDirection == 'long'
-					? 'Buy'
-					: undefined;
-			if (side) {
-				try {
-					await exchange.private_linear_post_position_trading_stop({
-						// Since we're hitting bybit's API directly, this is a specific endpoint for USDT pairs
-						symbol: TICKER,
-						side: side,
-						trailing_stop: Math.round(trailingStopLossTarget * 100) / 100,
-					});
-				} catch {
-					return console.log('ERROR SETTING TSLP, MAYBE NO OPEN POSITION?');
-				}
-			}
-		} else {
-			try {
-				await exchange.v2_private_post_position_trading_stop({
-					// Since we're hitting bybit's API directly, this is a specific endpoint for inverse pairs
-					symbol: TICKER,
-					trailing_stop: Math.round(trailingStopLossTarget * 100) / 100,
-				});
-			} catch {
-				return console.log('ERROR SETTING TSLP, MAYBE NO OPEN POSITION?');
-			}
-		}
-	} else {
-		return;
-	}
+// order config
+let od_type;
+let od_side;
+let od_amount;
+let od_amount_rate;
+let od_price;
+let od_sl_rate;
+let od_ts_rate;
+let od_ts_trigger;
+let limitAverageDown;
+let averageDownRate;
+let averageDownCount = 0;
+let lastTradeDirection;
+
+// Get balances from the exchange
+const getBalances = async () => {
+	const balance = await exchange.fetchBalance();
+	const usdtBalance = Math.round(balance.free.USDT);
+	return usdtBalance;
 };
 
-//
-// === Trade execution ===
-//
+// Set leverage (초기값 찾아서 비교해보는 로직 필요)
+const setLeverage = async () => {
+	await exchange.setLeverage('10', TICKER);
+};
 
-// Retrieve balances from the exchange
-const getBalances = async () => {
-	exchange['options']['defaultType'] = 'future';
-	await exchange.loadMarkets();
+// Create trailing stop
+const trailingStop = async () => {
+	// bybit
+	const trailingSide = lastTradeDirection === 'buy' ? 'Buy' : 'Sell';
+	const trailingParams = {
+		symbol: TICKER,
+		side: trailingSide,
+		trailing_stop: od_ts_rate,
+	};
 
-	let balances = await exchange.fetchBalance();
-	let tickerDetails = await exchange.fetchTicker(TICKER);
+	await exchange.privatePostPrivateLinearPositionTradingStop(trailingParams);
 
-	// 시장가 주문
-	const type = 'MARKET';
-	const opneSide = 'buy';
-	const closeSide = 'sell';
-	const amount = 0.1;
-	const price = undefined;
-	const closePositionParms = { reduceOnly: true };
-	// const createOrder = await exchange.createOrder(TICKER, type, opneSide, amount, price);
-	// console.log('Created order id:', createOrder['id']);
-
-	// 현재 포지션 종료 (현재 방향 반대로 reduce 주문을 열어서 정리)
-	// const closePositionOrder = await exchange.createOrder(
-	// 	TICKER,
-	// 	type,
-	// 	closeSide,
-	// 	amount,
-	// 	price,
-	// 	closePositionParms
-	// );
-
-	// 트레일링 스탑 (바이낸스)
+	// binance
 	// const trailingParams = {
 	// 	activationPrice: '20150',
 	// 	callbackRate: '0.5',
 	// };
-	// const trailing_response = await exchange.createOrder(
+	// const trailingSide = od_side === 'buy' ? 'sell' : 'buy';
+	// await exchange.createOrder(
 	// 	TICKER,
 	// 	'TRAILING_STOP_MARKET',
-	// 	closeSide,
+	// 	trailingSide,
 	// 	amount,
 	// 	price,
 	// 	trailingParams
 	// );
 
-	// 트레일링 스탑 (바이비트)
-	// const trailingParams = {
-	// 	symbol: TICKER,
-	// 	side: openSide,
-	// 	trailing_stop: 30,
-	// };
-	// const trailing_response = await exchange.privatePostPrivateLinearPositionTradingStop(
-	// 	trailingParams
-	// );
+	console.log('트레일링 스탑 시작');
 };
 
-getBalances();
+// Average down
+const averageDown = () => {
+	openPosition();
+	averageDownCount += 1;
+	console.log(`물타기 ${averageDownCount}회`);
+};
+
+// Live price info
+const liveTicker = async () => {
+	// currunt position info
+	const position = await exchange.fetchPositions([TICKER]);
+	const averagePrice = Number(position[0].info.entry_price);
+	const ts_triggerPrice = averagePrice + od_ts_trigger;
+	const sl_TriggerPrice = averagePrice - Math.round(averagePrice * od_sl_rate);
+	const averageDownPrice = averagePrice - Math.round(averagePrice * averageDownRate);
+
+	console.log('현재 평단 :', averagePrice);
+	console.log('물타기 가격 :', averageDownPrice);
+	console.log('손절 가격 :', sl_TriggerPrice);
+	console.log('TS 발동 가격 :', ts_triggerPrice);
+	console.log('------------------------------------');
+
+	// inquire price (bybit 초당 50회)
+	while (true) {
+		let tickerDetails = await exchange.fetchTicker(TICKER);
+
+		// average down (현재가격 <= 트리거 가격 && 물타기 카운트 횟수 < 물타기 제한 횟수)
+		if (tickerDetails.last <= averageDownPrice && averageDownCount < limitAverageDown) {
+			averageDown();
+			break;
+		}
+
+		// stop loss (현재가격 <= 트리거 가격 && 물타기 카운트 횟수 == 물타기 제한 횟수)
+		if (tickerDetails.last <= sl_TriggerPrice && averageDownCount == limitAverageDown) {
+			console.log('손절가 도달. 실시간 조회 종료');
+			closePosition(position);
+			break;
+		}
+
+		// trigger stop (현재가격 >= 트리거 가격)
+		if (tickerDetails.last >= ts_triggerPrice) {
+			console.log('익절가 도달. 실시간 조회 종료');
+			trailingStop();
+			break;
+		}
+	}
+};
+
+// Create open Position
+const openPosition = async () => {
+	lastTradeDirection = od_side;
+	console.log(od_side, '포지션 오픈');
+	await exchange.createOrder(TICKER, od_type, od_side, od_amount, od_price);
+	await liveTicker();
+};
+
+// Create clode position
+const closePosition = async (position) => {
+	const closeSide = od_side === 'buy' ? 'sell' : 'buy';
+	const amount = position[0].contracts;
+	await exchange.createOrder(TICKER, od_type, closeSide, amount, od_price, {
+		reduceOnly: true,
+	});
+	console.log('포지션 종료 (손절), 수량 :', amount);
+};
+
+//  executeTrade
+const executeTrade = async (json) => {
+	await exchange.loadMarkets();
+
+	const position = await exchange.fetchPositions([TICKER]);
+	const ticker = await exchange.fetchTicker(TICKER);
+	const usdtBalance = await getBalances();
+
+	const currentLeverage = position[0].leverage;
+	const curruntPrice = ticker.last;
+
+	od_type = 'MARKET';
+	od_side = 'buy';
+	od_price = undefined;
+	od_amount_rate = 0.1; // 0.1 = 10% (포지션 오픈 시 전체 잔고 대비 진입 비율)
+	od_amount = (usdtBalance * od_amount_rate) / (curruntPrice / currentLeverage); // 잔고 대비 진입 비율 / 1 BTC당 레버리지 적용 가격 ex) (30000 * 0.1) / (20000 / 10) = 1.5 BTC
+	od_sl_rate = 0.0003; // 0.01 = 1%
+	od_ts_rate = 5; // 1 = 1$
+	od_ts_trigger = 100; // 1 = 1$ (평단 대비 ts 발동 트리거 수치)
+	limitAverageDown = 2; // 1 = 1회
+	averageDownRate = 0.0001; // 0.01 = 1%
+
+	openPosition();
+};
+
+executeTrade();
