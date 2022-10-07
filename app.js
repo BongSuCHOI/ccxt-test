@@ -85,6 +85,7 @@ let od_price;
 let od_sl_rate;
 let od_ts_rate;
 let od_ts_trigger;
+let od_leverage;
 let limitAverageDown;
 let averageDownRate;
 let averageDownCount = 0;
@@ -98,8 +99,8 @@ const getBalances = async () => {
 };
 
 // Set leverage (초기값 찾아서 비교해보는 로직 필요)
-const setLeverage = async () => {
-	await exchange.setLeverage('10', TICKER);
+const setLeverage = async (leverage) => {
+	await exchange.setLeverage(leverage, TICKER);
 };
 
 // Create trailing stop
@@ -214,13 +215,20 @@ const executeTrade = async (json) => {
 	od_price = undefined;
 	od_amount_rate = 0.1; // 0.1 = 10% (포지션 오픈 시 전체 잔고 대비 진입 비율)
 	od_amount = (usdtBalance * od_amount_rate) / (curruntPrice / currentLeverage); // 잔고 대비 진입 비율 / 1 BTC당 레버리지 적용 가격 ex) (30000 * 0.1) / (20000 / 10) = 1.5 BTC
-	od_sl_rate = 0.0003; // 0.01 = 1%
+	od_sl_rate = 0.005; // 0.01 = 1%
 	od_ts_rate = 5; // 1 = 1$
-	od_ts_trigger = 100; // 1 = 1$ (평단 대비 ts 발동 트리거 수치)
+	od_ts_trigger = 80; // 1 = 1$ (평단 대비 ts 발동 트리거 수치)
+	// od_leverage = json.leverage ? json.leverage : 10;
+	od_leverage = 5;
 	limitAverageDown = 2; // 1 = 1회
-	averageDownRate = 0.0001; // 0.01 = 1%
+	averageDownRate = 0.003; // 0.01 = 1%
 
-	openPosition();
+	if (currentLeverage !== od_leverage) {
+		// setLeverage(json.leverage);
+		setLeverage(od_leverage);
+	}
+
+	// openPosition();
 };
 
 executeTrade();
