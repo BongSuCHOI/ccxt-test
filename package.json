@@ -4,7 +4,7 @@
 	"description": "Crypto trading bot that uses the CCXT library and TradingView webhooks",
 	"main": "app.js",
 	"dependencies": {
-		"ccxt": "^1.95.10",
+		"ccxt": "^1.95.35",
 		"dotenv": "^16.0.3",
 		"express": "^4.18.1"
 	},
