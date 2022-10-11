@@ -43,8 +43,10 @@ const exchange = new ccxt[EXCHANGE]({
 	apiKey: apiKey,
 	secret: apiSecret,
 	enableRateLimit: true,
+	options: {
+		defaultType: 'future',
+	},
 });
-exchange['options']['defaultType'] = 'future';
 
 // Check test mode
 if (TEST_MODE) {
@@ -98,7 +100,7 @@ const getBalances = async () => {
 	return usdtBalance;
 };
 
-// Set leverage (초기값 찾아서 비교해보는 로직 필요)
+// Set leverage
 const setLeverage = async (leverage) => {
 	await exchange.setLeverage(leverage, TICKER);
 };
@@ -206,70 +208,243 @@ const executeTrade = async (json) => {
 	const position = await exchange.fetchPositions([TICKER]);
 	const ticker = await exchange.fetchTicker(TICKER);
 	const usdtBalance = await getBalances();
-
 	const currentLeverage = position[0].leverage;
 	const curruntPrice = ticker.last;
 
+	/**
+	 * od_amount_rate : 0.1 = 10% (포지션 진입 비율)
+	 * od_amount : (전체잔고 * od_amount_rate) / 1 BTC당 레버리지 적용 가격
+	 * od_sl_rate : 0.01 = 1% (손절 비율)
+	 * od_ts_rate = 5; // 1 = 1$ (트레일링 스탑 비율)
+	 * od_ts_trigger = 80; // 1 = 1$ (트레일링 스탑 수치)
+	 * limitAverageDown = 2; // 1 = 1회 (물타기 횟수)
+	 * averageDownRate = 0.003; // 0.01 = 1% (현재 평단 기준 물타기 비율)
+	 */
 	od_type = 'MARKET';
 	od_side = 'buy';
 	od_price = undefined;
-	od_amount_rate = 0.1; // 0.1 = 10% (포지션 오픈 시 전체 잔고 대비 진입 비율)
-	od_amount = (usdtBalance * od_amount_rate) / (curruntPrice / currentLeverage); // 잔고 대비 진입 비율 / 1 BTC당 레버리지 적용 가격 ex) (30000 * 0.1) / (20000 / 10) = 1.5 BTC
-	od_sl_rate = 0.005; // 0.01 = 1%
-	od_ts_rate = 5; // 1 = 1$
-	od_ts_trigger = 80; // 1 = 1$ (평단 대비 ts 발동 트리거 수치)
+	od_amount_rate = 0.1;
+	od_amount = (usdtBalance * od_amount_rate) / (curruntPrice / currentLeverage);
+	od_sl_rate = 0.005;
+	od_ts_rate = 5;
+	od_ts_trigger = 80;
 	// od_leverage = json.leverage ? json.leverage : 10;
 	od_leverage = 5;
-	limitAverageDown = 2; // 1 = 1회
-	averageDownRate = 0.003; // 0.01 = 1%
+	limitAverageDown = 2;
+	averageDownRate = 0.003;
 
 	if (currentLeverage !== od_leverage) {
 		// setLeverage(json.leverage);
 		setLeverage(od_leverage);
 	}
 
-	// openPosition();
-	volatility();
+	openPosition();
 };
+// executeTrade();
 
-// 변동성
-const volatility = async () => {
-	// 공포 환의 계산 공식 사이트
-	// https://alternative.me/crypto/fear-and-greed-index/
-	// https://zipmex.com/learn/crypto-fear-and-greed-index-explained/
-	// 현재 시간부터 3시간 전 까지 캔들 데이터
-	// [타임스탬프, 시가, 고가, 저가, 종가, 거래량];
-	// 저 마지막 volum이 정확히 어떤건지 ccxt wiki 찾아봐야 할듯
-	const a = await exchange.fetchOHLCV('BTC/USDT:USDT', '1m');
-	console.log(a[a.length - 1]);
+// CMO
+const CMOcalc = async (length = 7) => {
+	// 최근 5분봉 8개 데이터
+	const prev5minDatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m', undefined, length + 1);
 
-	const b1 = 19932;
-	const b2 = 19925;
-	const b3 = 19908;
-	const b4 = 19914;
-	const b5 = 19895;
+	let sumArr = [];
 
-	// const ln1 = Math.log(b2 / b1);
-	// const ln2 = Math.log(b3 / b2);
-	// const ln3 = Math.log(b4 / b3);
-	// const ln4 = Math.log(b5 / b4);
-
-	function standardDeviation(arr) {
-		let mean =
-			arr.reduce((acc, curr) => {
-				return acc + curr;
-			}, 0) / arr.length;
-
-		arr = arr.map((el) => {
-			return (el - mean) ** 2;
-		});
-
-		let total = arr.reduce((acc, curr) => acc + curr, 0);
-
-		return Math.sqrt(total / arr.length);
+	// 각 캔들 종가의 차이값
+	for (let i = 1; i < prev5minDatas.length; i++) {
+		const prev = prev5minDatas[i - 1][prev5minDatas[i].length - 2];
+		const curr = prev5minDatas[i][prev5minDatas[i].length - 2];
+		sumArr.push(prev - curr);
 	}
 
-	console.log(standardDeviation([b1, b2, b3, b4, b5]) * Math.sqrt(5));
+	//차이값의 가장 높은 값의 합계(양수)
+	const highSum = sumArr.reduce((acc, curr) => {
+		const m = curr >= 0.0 ? curr : 0.0;
+		return (acc += m);
+	}, 0);
+
+	// 차이값의 가장 낮은 값의 합계(음수)
+	const lowSum = sumArr.reduce((acc, curr) => {
+		const m = curr >= 0.0 ? 0.0 : Math.abs(curr);
+		return (acc += m);
+	}, 0);
+
+	// 결과
+	const cmo = 100 * ((highSum - lowSum) / (highSum + lowSum));
+	console.log('CMO :', cmo);
+	return cmo;
 };
 
-executeTrade();
+// VO
+const VOcalc = async (shortLength = 7, longLength = 14) => {
+	// EMA = alpha * currntVolume + (1 - alpha) * prevEMA;
+	// https://www.cmegroup.com/ko/education/learn-about-trading/courses/technical-analysis/understanding-moving-averages.html
+	const prevLongDatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m', undefined, '15');
+	const prevShotDatas = prevLongDatas.slice((shortLength + 1) * -1);
+
+	const shortAlpha = 2 / (1 + shortLength);
+	const longAlpha = 2 / (1 + longLength);
+	const volume = prevLongDatas[prevLongDatas.length - 1];
+
+	let shortSum = 0;
+	let longSum = 0;
+
+	// short
+	for (let i = 0; i <= shortLength; i++) {
+		shortSum += prevShotDatas[i][prevShotDatas[i].length - 1];
+	}
+
+	// long
+	for (let i = 0; i <= longLength; i++) {
+		longSum += prevLongDatas[i][prevLongDatas[i].length - 1];
+	}
+
+	// ema
+	const prevShortEMA = shortSum / shortLength;
+	const prevLongEMA = longSum / longLength;
+
+	// vo
+	const shortEMA = shortAlpha * volume[volume.length - 1] + (1 - shortAlpha) * prevShortEMA;
+	const longEMA = longAlpha * volume[volume.length - 1] + (1 - longAlpha) * prevLongEMA;
+	const vo = 100 * ((shortEMA - longEMA) / shortEMA);
+
+	console.log('VO :', vo);
+	return vo;
+};
+
+async function init() {
+	// executeTrade();
+	// CMOcalc();
+	// VOcalc();
+	// volatility();
+	/**
+	 * 아래 api들 합칠 수 있으면 합치자
+	 * fetchPositions = 2개
+	 * fetchTicker = 2개
+	 * fetchOHLCV = 2개
+	 */
+}
+init();
+
+// 변동성 (잠깐 스탑 - cmo/vo/rvi 먼저 구해서 로직 짜보고 이어서)
+// const volatility = async () => {
+// 	// 공포 환의 계산 공식 사이트
+// 	// https://alternative.me/crypto/fear-and-greed-index/
+// 	// https://zipmex.com/learn/crypto-fear-and-greed-index-explained/
+
+// 	// 현재 시간부터 3시간 전 까지 캔들 데이터
+// 	const a = await exchange.fetchOHLCV('BTC/USDT:USDT', '1m');
+// 	console.log(a[a.length - 1]);
+// 	// [타임스탬프, 시가, 고가, 저가, 종가, 거래량];
+// 	// 저 마지막 volum이 정확히 어떤건지 ccxt wiki 찾아봐야 할듯
+// 	const b1 = 19932;
+// 	const b2 = 19925;
+// 	const b3 = 19908;
+// 	const b4 = 19914;
+// 	const b5 = 19895;
+
+// 	// const ln1 = Math.log(b2 / b1);
+// 	// const ln2 = Math.log(b3 / b2);
+// 	// const ln3 = Math.log(b4 / b3);
+// 	// const ln4 = Math.log(b5 / b4);
+
+// 	// 표준 편차
+// 	function standardDeviation(arr) {
+// 		let mean =
+// 			arr.reduce((acc, curr) => {
+// 				return acc + curr;
+// 			}, 0) / arr.length;
+
+// 		arr = arr.map((el) => {
+// 			return (el - mean) ** 2;
+// 		});
+
+// 		let total = arr.reduce((acc, curr) => acc + curr, 0);
+
+// 		return Math.sqrt(total / arr.length);
+// 	}
+
+// 	console.log(standardDeviation([b1, b2, b3, b4, b5]) * Math.sqrt(5));
+// };
+
+/**
+ * InvalidNonce: bybit {"ret_code":10002,"ret_msg":"invalid request,please check your server timestamp or recv_window param","ext_code":"","result":null,"ext_info":null,"time_now":1665457425564}
+ * 위와 같은 에러가 난다면
+ * const eTime = await exchange.fetch_time();
+ * const mTime = await exchange.milliseconds();
+ * console.log(eTime, mTime, mTime - eTime);
+ * 찍어보고 1000이상 차이날 경우 컴퓨터 시간 동기화
+ */
+
+// CMO 트레이딩뷰 싱크 테스트
+const testCMOcalc = async () => {
+	// 최근 5분봉 8개 데이터
+	const prev5minDatas = [
+		/*8개*/
+	];
+
+	let sumArr = [];
+
+	// 각 캔들 종가의 차이값
+	for (let i = 1; i < prev5minDatas.length; i++) {
+		const prev = prev5minDatas[i - 1];
+		const curr = prev5minDatas[i];
+		sumArr.push(prev - curr);
+	}
+
+	//차이값의 가장 높은 값의 합계(양수)
+	const highSum = sumArr.reduce((acc, curr) => {
+		const m = curr >= 0.0 ? curr : 0.0;
+		return (acc += m);
+	}, 0);
+
+	// 차이값의 가장 낮은 값의 합계(음수)
+	const lowSum = sumArr.reduce((acc, curr) => {
+		const m = curr >= 0.0 ? 0.0 : Math.abs(curr);
+		return (acc += m);
+	}, 0);
+
+	// 결과
+	const cmo = 100 * ((highSum - lowSum) / (highSum + lowSum));
+	console.log('CMO TEST :', cmo);
+	return cmo;
+};
+
+// VO 트레이딩뷰 싱크 테스트
+const testVOcalc = async (shortLength = 7, longLength = 14) => {
+	const prevLongDatas = [
+		/*15개*/
+	];
+	const prevShotDatas = prevLongDatas.slice((shortLength + 1) * -1);
+
+	const shortAlpha = 2 / (1 + shortLength);
+	const longAlpha = 2 / (1 + longLength);
+	const volume = prevLongDatas[prevLongDatas.length - 1];
+
+	let shortSum = 0;
+	let longSum = 0;
+
+	// short
+	for (let i = 0; i <= shortLength; i++) {
+		shortSum += prevShotDatas[i];
+	}
+
+	// long
+	for (let i = 0; i <= longLength; i++) {
+		longSum += prevLongDatas[i];
+	}
+
+	// ema
+	const prevShortEMA = shortSum / shortLength;
+	const prevLongEMA = longSum / longLength;
+
+	// vo
+	const shortEMA = shortAlpha * volume[volume.length - 1] + (1 - shortAlpha) * prevShortEMA;
+	const longEMA = longAlpha * volume[volume.length - 1] + (1 - longAlpha) * prevLongEMA;
+	const vo = 100 * ((shortEMA - longEMA) / shortEMA);
+
+	console.log('VO TEST :', vo);
+	return vo;
+};
+
+testCMOcalc();
+testVOcalc();
