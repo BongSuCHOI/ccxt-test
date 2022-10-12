@@ -242,7 +242,7 @@ const executeTrade = async (json) => {
 };
 // executeTrade();
 
-// CMO
+// CMO (chande momentum oscillator)
 const CMOcalc = async (length = 7) => {
 	// 최근 5분봉 8개 데이터
 	const prev5minDatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m', undefined, length + 1);
@@ -251,8 +251,8 @@ const CMOcalc = async (length = 7) => {
 
 	// 각 캔들 종가의 차이값
 	for (let i = 1; i < prev5minDatas.length; i++) {
-		const prev = prev5minDatas[i - 1][prev5minDatas[i].length - 2];
-		const curr = prev5minDatas[i][prev5minDatas[i].length - 2];
+		const prev = prev5minDatas[prev5minDatas.length - i][prev5minDatas[i].length - 2];
+		const curr = prev5minDatas[prev5minDatas.length - (i + 1)][prev5minDatas[i].length - 2];
 		sumArr.push(prev - curr);
 	}
 
@@ -270,51 +270,40 @@ const CMOcalc = async (length = 7) => {
 
 	// 결과
 	const cmo = 100 * ((highSum - lowSum) / (highSum + lowSum));
-	console.log('CMO :', cmo);
-	return cmo;
+	console.log('CMO :', cmo.toFixed(2));
+	return cmo.toFixed(2);
 };
 
-// VO
+// VO (volume oscillator)
 const VOcalc = async (shortLength = 7, longLength = 14) => {
+	const datas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
+	const volumeDatas = datas.map((data) => data[data.length - 1]);
+
+	const shortAlpha = 2 / (shortLength + 1);
+	const longAlpha = 2 / (longLength + 1);
+
 	// EMA = alpha * currntVolume + (1 - alpha) * prevEMA;
-	// https://www.cmegroup.com/ko/education/learn-about-trading/courses/technical-analysis/understanding-moving-averages.html
-	const prevLongDatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m', undefined, '15');
-	const prevShotDatas = prevLongDatas.slice((shortLength + 1) * -1);
-
-	const shortAlpha = 2 / (1 + shortLength);
-	const longAlpha = 2 / (1 + longLength);
-	const volume = prevLongDatas[prevLongDatas.length - 1];
-
-	let shortSum = 0;
-	let longSum = 0;
-
-	// short
-	for (let i = 0; i <= shortLength; i++) {
-		shortSum += prevShotDatas[i][prevShotDatas[i].length - 1];
+	function EMACalc(volumes, alpha) {
+		let emaArray = [volumes[0]];
+		for (let i = 1; i < volumes.length; i++) {
+			emaArray.push(alpha * volumes[i] + (1 - alpha) * emaArray[i - 1]);
+		}
+		return emaArray[emaArray.length - 1];
 	}
 
-	// long
-	for (let i = 0; i <= longLength; i++) {
-		longSum += prevLongDatas[i][prevLongDatas[i].length - 1];
-	}
-
-	// ema
-	const prevShortEMA = shortSum / shortLength;
-	const prevLongEMA = longSum / longLength;
+	const shortEMA = EMACalc(volumeDatas, shortAlpha);
+	const longEMA = EMACalc(volumeDatas, longAlpha);
 
 	// vo
-	const shortEMA = shortAlpha * volume[volume.length - 1] + (1 - shortAlpha) * prevShortEMA;
-	const longEMA = longAlpha * volume[volume.length - 1] + (1 - longAlpha) * prevLongEMA;
-	const vo = 100 * ((shortEMA - longEMA) / shortEMA);
-
-	console.log('VO :', vo);
-	return vo;
+	const vo = ((shortEMA - longEMA) / longEMA) * 100;
+	console.log('VO :', vo.toFixed(2));
+	return vo.toFixed(2);
 };
 
 async function init() {
 	// executeTrade();
-	// CMOcalc();
-	// VOcalc();
+	CMOcalc();
+	VOcalc();
 	// volatility();
 	/**
 	 * 아래 api들 합칠 수 있으면 합치자
@@ -375,76 +364,7 @@ init();
  * 찍어보고 1000이상 차이날 경우 컴퓨터 시간 동기화
  */
 
-// CMO 트레이딩뷰 싱크 테스트
-const testCMOcalc = async () => {
-	// 최근 5분봉 8개 데이터
-	const prev5minDatas = [
-		/*8개*/
-	];
-
-	let sumArr = [];
-
-	// 각 캔들 종가의 차이값
-	for (let i = 1; i < prev5minDatas.length; i++) {
-		const prev = prev5minDatas[i - 1];
-		const curr = prev5minDatas[i];
-		sumArr.push(prev - curr);
-	}
-
-	//차이값의 가장 높은 값의 합계(양수)
-	const highSum = sumArr.reduce((acc, curr) => {
-		const m = curr >= 0.0 ? curr : 0.0;
-		return (acc += m);
-	}, 0);
-
-	// 차이값의 가장 낮은 값의 합계(음수)
-	const lowSum = sumArr.reduce((acc, curr) => {
-		const m = curr >= 0.0 ? 0.0 : Math.abs(curr);
-		return (acc += m);
-	}, 0);
-
-	// 결과
-	const cmo = 100 * ((highSum - lowSum) / (highSum + lowSum));
-	console.log('CMO TEST :', cmo);
-	return cmo;
-};
-
-// VO 트레이딩뷰 싱크 테스트
-const testVOcalc = async (shortLength = 7, longLength = 14) => {
-	const prevLongDatas = [
-		/*15개*/
-	];
-	const prevShotDatas = prevLongDatas.slice((shortLength + 1) * -1);
-
-	const shortAlpha = 2 / (1 + shortLength);
-	const longAlpha = 2 / (1 + longLength);
-	const volume = prevLongDatas[prevLongDatas.length - 1];
-
-	let shortSum = 0;
-	let longSum = 0;
-
-	// short
-	for (let i = 0; i <= shortLength; i++) {
-		shortSum += prevShotDatas[i];
-	}
-
-	// long
-	for (let i = 0; i <= longLength; i++) {
-		longSum += prevLongDatas[i];
-	}
-
-	// ema
-	const prevShortEMA = shortSum / shortLength;
-	const prevLongEMA = longSum / longLength;
-
-	// vo
-	const shortEMA = shortAlpha * volume[volume.length - 1] + (1 - shortAlpha) * prevShortEMA;
-	const longEMA = longAlpha * volume[volume.length - 1] + (1 - longAlpha) * prevLongEMA;
-	const vo = 100 * ((shortEMA - longEMA) / shortEMA);
-
-	console.log('VO TEST :', vo);
-	return vo;
-};
-
-testCMOcalc();
-testVOcalc();
+/**
+ * 거래 시그널 계산 로직 웹소켓 처리 사례?
+ * https://github.com/ccxt/ccxt/issues/12861#issue-1205977323
+ */
