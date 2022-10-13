@@ -243,29 +243,35 @@ const executeTrade = async (json) => {
 // executeTrade();
 
 // CMO (chande momentum oscillator)
+/**
+ * 공식 참고
+ * https://planetcalc.com/617/ (상단 수식 위에 본문)
+ * https://www.motivewave.com/studies/chande_momentum_oscillator.htm (하단 코드)
+ * 트레이딩뷰 > 헬프센터 > relative volatility index
+ */
 const CMOcalc = async (length = 7) => {
 	// 최근 5분봉 8개 데이터
-	const prev5minDatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m', undefined, length + 1);
+	const datas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m', undefined, length + 1);
 
-	let sumArr = [];
+	let diffArr = [];
 
 	// 각 캔들 종가의 차이값
-	for (let i = 1; i < prev5minDatas.length; i++) {
-		const prev = prev5minDatas[prev5minDatas.length - i][prev5minDatas[i].length - 2];
-		const curr = prev5minDatas[prev5minDatas.length - (i + 1)][prev5minDatas[i].length - 2];
-		sumArr.push(prev - curr);
+	for (let i = 1; i < datas.length; i++) {
+		const prev = datas[datas.length - (i + 1)][datas[i].length - 2];
+		const curr = datas[datas.length - i][datas[i].length - 2];
+		diffArr.push(curr - prev);
 	}
 
 	//차이값의 가장 높은 값의 합계(양수)
-	const highSum = sumArr.reduce((acc, curr) => {
-		const m = curr >= 0.0 ? curr : 0.0;
-		return (acc += m);
+	const highSum = diffArr.reduce((acc, curr) => {
+		const high = curr >= 0.0 ? curr : 0.0;
+		return (acc += high);
 	}, 0);
 
 	// 차이값의 가장 낮은 값의 합계(음수)
-	const lowSum = sumArr.reduce((acc, curr) => {
-		const m = curr >= 0.0 ? 0.0 : Math.abs(curr);
-		return (acc += m);
+	const lowSum = diffArr.reduce((acc, curr) => {
+		const low = curr >= 0.0 ? 0.0 : Math.abs(curr);
+		return (acc += low);
 	}, 0);
 
 	// 결과
@@ -275,6 +281,11 @@ const CMOcalc = async (length = 7) => {
 };
 
 // VO (volume oscillator)
+/**
+ * 트레이딩뷰 > vo지표 코드 보기(파인스크립트 해석)
+ * EMA 구하는 법 구글링
+ * 특이사항 : fetchOHLCV에 limit제한을 걸어버리면 비교 데이터가 적어서 그런지 수치가 다르게 나옴
+ */
 const VOcalc = async (shortLength = 7, longLength = 14) => {
 	const datas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
 	const volumeDatas = datas.map((data) => data[data.length - 1]);
@@ -300,10 +311,105 @@ const VOcalc = async (shortLength = 7, longLength = 14) => {
 	return vo.toFixed(2);
 };
 
+// RVI (relative volatility index)
+/**
+ * 트레이딩뷰 > riv 지표 코드 보기(파인스크립트 해석)
+ * https://www.hi-ib.com/upload/systemtrade/guide/RVI.pdf
+ * marketvolume.com/technicalanalysis/relativevolatilityindex.asp
+ */
+const RVIcalc = async (length = 7) => {
+	// 최근 5분봉 8개 데이터
+	const datas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m', undefined);
+	const closeDatas = datas.map((data) => data[data.length - 2]);
+	// const closeDatas = [19408, 19398.8, 19406, 19402.5, 19402.2, 19397.6, 19410, 19417.7, 19409.7, 19416.1, 19418.5, 19528.2, 19472.2, 19474.1];
+	// btc/5min, 10/9, 19:50
+	const prev7dayDatas = closeDatas.slice(-length);
+
+	// 표준 편차
+	const isZoro = (val, eps) => {
+		let number = 0;
+		val >= 0 ? (number = val) : (number = -val);
+		return number <= eps;
+	};
+	const SUM = (fst, snd) => {
+		const eps = 1e-10;
+		let res = fst + snd;
+		if (isZoro(res, eps)) {
+			res = 0;
+		} else {
+			if (!isZoro(res, 1e-4)) {
+				res = res;
+			} else {
+				res = 15;
+			}
+		}
+		return res;
+	};
+	const standardDeviation = (arr, length) => {
+		let sumOfSquareDeviations = 0;
+		let smaSum = 0;
+		let sum = 0;
+		let stdevArr = [];
+		for (let i = 0; i < arr.length; i++) {
+			smaSum = smaSum += arr[i];
+			sma = smaSum / (i + 1);
+			sum = SUM(arr[0], -sma);
+			sumOfSquareDeviations = sumOfSquareDeviations + sum * sum;
+			stdevArr.push(Math.sqrt(sumOfSquareDeviations / length));
+		}
+		return stdevArr[stdevArr.length - 1];
+	};
+
+	const stdev = standardDeviation(prev7dayDatas, length);
+
+	// 현재 캔들과 이전 캔들의 종가의 차이가 +, -일때 데이터 분류
+	// 여기를 뚫어야함
+	// upper = ta.ema(ta.change(src) <= 0 ? 0 : stddev, len)
+	// lower = ta.ema(ta.change(src) > 0 ? 0 : stddev, len)
+
+	// stdev가 똑같은 값만 들어가서 그런거같음 standardDeviation()나 아래 for문 로직 조금 수정하면 될거같음
+	let upperDatas = [];
+	let lowerDatas = [];
+	for (let i = 1; i < closeDatas.length; i++) {
+		const prev = closeDatas[i - 1];
+		const curr = closeDatas[i];
+		if (curr - prev <= 0) {
+			upperDatas.push(0);
+		} else {
+			upperDatas.push(stdev);
+		}
+
+		if (curr - prev > 0) {
+			lowerDatas.push(0);
+		} else {
+			lowerDatas.push(stdev);
+		}
+	}
+
+	// EMA = alpha * currntVolume + (1 - alpha) * prevEMA;
+	function EMACalc(volumes, length = 14) {
+		const alpha = 2 / (length + 1);
+		let emaArray = [volumes[0]];
+		for (let i = 1; i < volumes.length; i++) {
+			emaArray.push(alpha * volumes[i] + (1 - alpha) * emaArray[i - 1]);
+		}
+		return emaArray[emaArray.length - 1];
+	}
+
+	const upper = EMACalc(upperDatas);
+	const lower = EMACalc(lowerDatas);
+
+	// 결과
+	const rvi = (upper / (upper + lower)) * 100;
+	console.log('RVI :', rvi.toFixed(2));
+	return rvi.toFixed(2);
+};
+
 async function init() {
 	// executeTrade();
-	CMOcalc();
 	VOcalc();
+	CMOcalc();
+	RVIcalc();
 	// volatility();
 	/**
 	 * 아래 api들 합칠 수 있으면 합치자
