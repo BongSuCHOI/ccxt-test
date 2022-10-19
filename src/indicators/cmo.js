@@ -7,7 +7,7 @@
  */
 exports.CMO = (datas, length = 7) => {
 	// 최근 8개 종가 데이터
-	const closeDatas = datas.slice(-length - 1).map((data) => data[data.length - 2]);
+	const closeDatas = datas.slice(-length - 1).map((data) => data[4]);
 
 	// 각 캔들 종가의 차이값
 	let diffArr = [];
