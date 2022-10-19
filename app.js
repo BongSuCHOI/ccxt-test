@@ -249,36 +249,36 @@ const executeTrade = async (json) => {
  * https://www.motivewave.com/studies/chande_momentum_oscillator.htm (하단 코드)
  * 트레이딩뷰 > 헬프센터 > relative volatility index
  */
-const CMOcalc = (datas, length = 7) => {
-	// 최근 8개 종가 데이터
-	const closeDatas = datas.slice(-length - 1).map((data) => data[data.length - 2]);
+// const CMOcalc = (datas, length = 7) => {
+// 	// 최근 8개 종가 데이터
+// 	const closeDatas = datas.slice(-length - 1).map((data) => data[data.length - 2]);
 
-	// 각 캔들 종가의 차이값
-	let diffArr = [];
+// 	// 각 캔들 종가의 차이값
+// 	let diffArr = [];
 
-	for (let i = 1; i < closeDatas.length; i++) {
-		const prev = closeDatas[closeDatas.length - (i + 1)];
-		const curr = closeDatas[closeDatas.length - i];
-		diffArr.push(curr - prev);
-	}
+// 	for (let i = 1; i < closeDatas.length; i++) {
+// 		const prev = closeDatas[closeDatas.length - (i + 1)];
+// 		const curr = closeDatas[closeDatas.length - i];
+// 		diffArr.push(curr - prev);
+// 	}
 
-	//차이값의 가장 높은 값의 합계(양수)
-	const highSum = diffArr.reduce((acc, curr) => {
-		const high = curr >= 0.0 ? curr : 0.0;
-		return (acc += high);
-	}, 0);
+// 	//차이값의 가장 높은 값의 합계(양수)
+// 	const highSum = diffArr.reduce((acc, curr) => {
+// 		const high = curr >= 0.0 ? curr : 0.0;
+// 		return (acc += high);
+// 	}, 0);
 
-	// 차이값의 가장 낮은 값의 합계(음수)
-	const lowSum = diffArr.reduce((acc, curr) => {
-		const low = curr >= 0.0 ? 0.0 : Math.abs(curr);
-		return (acc += low);
-	}, 0);
+// 	// 차이값의 가장 낮은 값의 합계(음수)
+// 	const lowSum = diffArr.reduce((acc, curr) => {
+// 		const low = curr >= 0.0 ? 0.0 : Math.abs(curr);
+// 		return (acc += low);
+// 	}, 0);
 
-	// 결과
-	const cmo = 100 * ((highSum - lowSum) / (highSum + lowSum));
-	console.log('CMO :', cmo.toFixed(2));
-	return cmo.toFixed(2);
-};
+// 	// 결과
+// 	const cmo = 100 * ((highSum - lowSum) / (highSum + lowSum));
+// 	console.log('CMO :', cmo.toFixed(2));
+// 	return cmo.toFixed(2);
+// };
 
 // VO (volume oscillator)
 /**
@@ -294,6 +294,7 @@ const VOcalc = async (datas, shortLength = 7, longLength = 14) => {
 	const longAlpha = 2 / (longLength + 1);
 
 	// EMA = alpha * currntVolume + (1 - alpha) * prevEMA;
+	// 과거 데이터가 0번째 순으로
 	const EMACalc = (volumes, alpha) => {
 		let emaArray = [volumes[0]];
 		for (let i = 1; i < volumes.length; i++) {
@@ -319,13 +320,10 @@ const VOcalc = async (datas, shortLength = 7, longLength = 14) => {
  */
 const RVIcalc = async (datas, length = 7) => {
 	// 최근 종가 데이터
-	// const closeDatas = datas.map((data) => data[data.length - 2]);
-	// btc/5min, 10/9, 19:50
-	const closeDatas = [
-		19408, 19398.8, 19406, 19402.5, 19402.2, 19397.6, 19410, 19417.7, 19409.7, 19416.1, 19418.5,
-		19528.2, 19472.2, 19474.1,
-	];
-	const prev7dayDatas = closeDatas.slice(-length);
+	const closeDatas = datas.map((data) => data[data.length - 2]);
+	const upperSTDs = [];
+	const lowerSTDs = [];
+	let stdevArr = [];
 
 	// 표준 편차
 	// https://sciencing.com/calculate-deviations-mean-sum-squares-5691381.html
@@ -339,30 +337,29 @@ const RVIcalc = async (datas, length = 7) => {
 			sumOfSquareDeviations = sumOfSquareDeviations + mean[i] * mean[i];
 			stdevArr.push(Math.sqrt(sumOfSquareDeviations / length));
 		}
-		return stdevArr;
+		return stdevArr[stdevArr.length - 1];
 	};
 
-	const stdev = standardDeviation(prev7dayDatas, length);
-
-	// 이 아래부터 해결 해야함 (위에 stdev는 트뷰랑 싱크 맞아서 맞는거같음)
-	// upper = ta.ema(ta.change(src) <= 0 ? 0 : stddev, len)
-	// lower = ta.ema(ta.change(src) > 0 ? 0 : stddev, len)
-	// const test = [6.13, 6.97, 7.41, 41.34, 41.67, 41.36]; // 트뷰 btc/5min, 10/9, 19:50, stdev 데이터
-
-	const upperSTDs = [];
-	const lowerSTDs = [];
-
-	for (let i = 1; i < prev7dayDatas.length; i++) {
-		const prev = prev7dayDatas[prev7dayDatas.length - (i + 1)];
-		const curr = prev7dayDatas[prev7dayDatas.length - i];
-		console.log(curr - prev, curr - prev <= 0 ? 0 : stdev[i - 1]);
-		upperSTDs.push(curr - prev <= 0 ? 0 : stdev[i - 1]);
-		lowerSTDs.push(curr - prev > 0 ? 0 : stdev[i - 1]);
-		// console.log(curr, prev, curr - prev <= 0 ? 0 : test[i - 1]);
-		// upperSTDs.push(curr - prev <= 0 ? 0 : test[i - 1]);
-		// lowerSTDs.push(curr - prev > 0 ? 0 : test[i - 1]);
+	// length 단위로 closeDatas slice후 표준 편차
+	// ex) closeDatas = [1, 3, 5, 10, 30]
+	// ex) slide = [1,3,5], [3,5,10], [5,10,30]
+	// ex) stdevArr = [1.63, 2.94, 10.8]
+	for (let i = 0; i < closeDatas.length - (length - 1); i++) {
+		const sliceDatas = closeDatas.slice(i, length + i);
+		stdevArr.push(standardDeviation(sliceDatas, length));
 	}
 
+	// upperSTDs = 현재가격 - 이전종가가 0보다 큰 경우 표준편차 / 최신 데이터가 0번째
+	// lowerSTDs = 현재가격 - 이전종가가 0보다 작은 경우 표준편차 / 최신 데이터가 0번째
+	for (let i = 0; i < stdevArr.length; i++) {
+		const prev = closeDatas[closeDatas.length - (i + 2)];
+		const curr = closeDatas[closeDatas.length - (i + 1)];
+		upperSTDs.push(curr - prev <= 0 ? 0 : stdevArr[stdevArr.length - (i + 1)]);
+		lowerSTDs.push(curr - prev > 0 ? 0 : stdevArr[stdevArr.length - (i + 1)]);
+	}
+
+	// EMA = alpha * currntVolume + (1 - alpha) * prevEMA;
+	// 과거 데이터가 0번째 순으로
 	const EMACalc = (volumes, length = 14) => {
 		const alpha = 2 / (length + 1);
 		let emaArray = [volumes[0]];
@@ -372,13 +369,11 @@ const RVIcalc = async (datas, length = 7) => {
 		return emaArray[emaArray.length - 1];
 	};
 
-	const upper = EMACalc(upperSTDs); // 12.27
-	const lower = EMACalc(lowerSTDs); // 6.43
-	console.log('upper', upper);
-	console.log('lower', lower);
+	const upperEMA = EMACalc(upperSTDs.slice().reverse());
+	const lowerEMA = EMACalc(lowerSTDs.slice().reverse());
 
 	// 결과
-	const rvi = (upper / (upper + lower)) * 100; // 65.63
+	const rvi = (upperEMA / (upperEMA + lowerEMA)) * 100;
 	console.log('RVI :', rvi.toFixed(2));
 	return rvi.toFixed(2);
 };
@@ -387,8 +382,8 @@ async function init() {
 	// executeTrade();
 	const OHLCVdatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
 	VOcalc(OHLCVdatas);
-	CMOcalc(OHLCVdatas);
 	RVIcalc(OHLCVdatas);
+	// CMOcalc(OHLCVdatas);
 	// volatility();
 	/**
 	 * 아래 api들 합칠 수 있으면 합치자
