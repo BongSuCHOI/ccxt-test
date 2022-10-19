@@ -67,7 +67,7 @@ if (TEST_MODE) {
 // const handleTrade = (req, res) => {
 // 	let json = req.body;
 // 	if (json.auth_id === AUTH_ID) {
-// 		// executeTrade(json);
+// 		// orderSetting(json);
 // 		res.status(200).end();
 // 	} else {
 // 		console.log('401 UNAUTHORIZED', json);
@@ -85,14 +85,17 @@ let od_side;
 let od_amount;
 let od_amount_rate;
 let od_price;
+let od_gap;
 let od_sl_rate;
 let od_ts_rate;
 let od_ts_trigger;
 let od_leverage;
+let od_stop_time;
 let limitAverageDown;
 let averageDownRate;
 let averageDownCount = 0;
 let lastTradeDirection;
+let timer;
 
 // Get balances from the exchange
 const getBalances = async () => {
@@ -104,6 +107,13 @@ const getBalances = async () => {
 // Set leverage
 const setLeverage = async (leverage) => {
 	await exchange.setLeverage(leverage, TICKER);
+};
+
+// Trading stop time
+const tradingStopTime = () => {
+	timer = setTimeout(() => {
+		init();
+	}, od_stop_time * 60000);
 };
 
 // Create trailing stop
@@ -172,6 +182,7 @@ const liveTicker = async () => {
 		if (tickerDetails.last <= sl_TriggerPrice && averageDownCount == limitAverageDown) {
 			console.log('손절가 도달. 실시간 조회 종료');
 			closePosition(position);
+			tradingStopTime();
 			break;
 		}
 
@@ -179,6 +190,38 @@ const liveTicker = async () => {
 		if (tickerDetails.last >= ts_triggerPrice) {
 			console.log('익절가 도달. 실시간 조회 종료');
 			trailingStop();
+			tradingStopTime();
+			break;
+		}
+	}
+};
+
+// Trade signal monitoring
+const signalMonitoring = async () => {
+	// inquire price (bybit 초당 50회)
+	while (true) {
+		const OHLCVdatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
+		const RVI = indicator.RVI(OHLCVdatas, 14);
+		const VO = indicator.VO(OHLCVdatas, 7, 14);
+		const BAB = indicator.BAB(OHLCVdatas, 14, 1);
+		// const CMO = indicator.CMO(OHLCVdatas);
+
+		const isBuyRVISignal = RVI < 20;
+		const isBuyVOSignal = VO > 20;
+		const isBuyBABSignal = BAB < -80;
+
+		console.log(`RVI : ${RVI} | BAB : ${BAB} | VO : ${VO}`);
+
+		if (isBuyRVISignal && isBuyVOSignal && isBuyBABSignal) {
+			console.log('rvi :', RVI, '/ buy signal :', isBuyRVISignal);
+			console.log('vo :', VO, '/ buy signal :', isBuyVOSignal);
+			console.log('bab :', BAB, '/ buy signal :', isBuyBABSignal);
+			console.log('매수 :', isBuyRVISignal && isBuyVOSignal && isBuyBABSignal);
+
+			const lastPrice = OHLCVdatas[OHLCVdatas.length - 1][4];
+			od_side = 'buy';
+			od_price = lastPrice - od_gap;
+			// openPosition();
 			break;
 		}
 	}
@@ -202,8 +245,19 @@ const closePosition = async (position) => {
 	console.log('포지션 종료 (손절), 수량 :', amount);
 };
 
-//  executeTrade
-const executeTrade = async (json) => {
+// Order setting
+const orderSetting = async (
+	type,
+	gap,
+	amount_rate,
+	sl_rate,
+	ts_rate,
+	ts_trigger,
+	leverage,
+	stop_time,
+	ad_limit_Count,
+	ad_rate
+) => {
 	await exchange.loadMarkets();
 
 	const position = await exchange.fetchPositions([TICKER]);
@@ -213,49 +267,37 @@ const executeTrade = async (json) => {
 	const curruntPrice = ticker.last;
 
 	/**
+	 * od_gap : 현재 가격 기준 리밋 주문 가격 넣을 간격 // 현재가격 100, od_gap 10, 리밋롱주문 90, 리밋숏주문 110
 	 * od_amount_rate : 0.1 = 10% (포지션 진입 비율)
 	 * od_amount : (전체잔고 * od_amount_rate) / 1 BTC당 레버리지 적용 가격
 	 * od_sl_rate : 0.01 = 1% (손절 비율)
 	 * od_ts_rate = 5; // 1 = 1$ (트레일링 스탑 비율)
 	 * od_ts_trigger = 80; // 1 = 1$ (트레일링 스탑 수치)
+	 * od_stop_time = 1 // 1 = 1분 (거래 종료 후 주문 중지 시간)
 	 * limitAverageDown = 2; // 1 = 1회 (물타기 횟수)
 	 * averageDownRate = 0.003; // 0.01 = 1% (현재 평단 기준 물타기 비율)
 	 */
-	od_type = 'MARKET';
-	od_side = 'buy';
-	od_price = undefined;
+	od_type = 'limit'; // market or limit
+	od_gap = 0;
 	od_amount_rate = 0.1;
 	od_amount = (usdtBalance * od_amount_rate) / (curruntPrice / currentLeverage);
 	od_sl_rate = 0.005;
 	od_ts_rate = 5;
 	od_ts_trigger = 80;
-	// od_leverage = json.leverage ? json.leverage : 10;
 	od_leverage = 5;
+	od_stop_time = 1;
 	limitAverageDown = 2;
 	averageDownRate = 0.003;
 
 	if (currentLeverage !== od_leverage) {
-		// setLeverage(json.leverage);
 		setLeverage(od_leverage);
 	}
-
-	openPosition();
 };
-// executeTrade();
 
 async function init() {
-	// executeTrade();
-	const OHLCVdatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
-	const RVI = indicator.RVI(OHLCVdatas);
-	const VO = indicator.VO(OHLCVdatas);
-	const CMO = indicator.CMO(OHLCVdatas);
-	console.log('rvi :', RVI);
-	console.log('vo :', VO);
-	/**
-	 * 아래 api들 합칠 수 있으면 합치자
-	 * fetchPositions = 2개
-	 * fetchTicker = 2개
-	 */
+	clearTimeout(timer);
+	// orderSetting('limit', 0, 0.1, 0.005, 5, 80, 5, 1, 2, 0.003)
+	signalMonitoring();
 }
 
 init();

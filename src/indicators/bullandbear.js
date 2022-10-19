@@ -1,8 +1,6 @@
-// -Calculation ================================================================================= //
-// O = open, H = high, L = low, C = close
-// bull = ta.ema(H - ta.ema(C, length), smooth)
-// bear = ta.ema(L - ta.ema(C, length), smooth)
-// bbp  = ta.ema(bull + bear, smooth)
+/**
+ * 트레이딩뷰 > 'Bull vs Bear Power by DGT by dgtrd' 스크립트 코드 보기(파인스크립트 해석)
+ */
 const { EMACalc } = require('./calc/ema');
 
 exports.BAB = (datas, length = 7, smooth = 1) => {
