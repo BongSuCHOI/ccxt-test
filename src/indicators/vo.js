@@ -10,10 +10,12 @@ exports.VO = (datas, shortLength = 7, longLength = 14) => {
 	// 최근 볼륨 데이터
 	const volumeDatas = datas.map((data) => data[5]);
 
-	const shortEMA = EMACalc(volumeDatas, shortLength);
-	const longEMA = EMACalc(volumeDatas, longLength);
+	const shortEMAs = EMACalc(volumeDatas, shortLength);
+	const longEMAs = EMACalc(volumeDatas, longLength);
+	const short = shortEMAs[shortEMAs.length - 1];
+	const long = longEMAs[longEMAs.length - 1];
 
 	// vo
-	const vo = ((shortEMA - longEMA) / longEMA) * 100;
+	const vo = ((short - long) / long) * 100;
 	return vo.toFixed(2);
 };

@@ -32,10 +32,12 @@ exports.RVI = (datas, length = 7) => {
 		lowerSTDs.push(curr - prev > 0 ? 0 : stdevArr[stdevArr.length - (i + 1)]);
 	}
 
-	const upperEMA = EMACalc(upperSTDs.slice().reverse(), 14);
-	const lowerEMA = EMACalc(lowerSTDs.slice().reverse(), 14);
+	const upperEMAs = EMACalc(upperSTDs.slice().reverse(), 14);
+	const lowerEMAs = EMACalc(lowerSTDs.slice().reverse(), 14);
+	const upper = upperEMAs[upperEMAs.length - 1];
+	const lower = lowerEMAs[lowerEMAs.length - 1];
 
 	// 결과
-	const rvi = (upperEMA / (upperEMA + lowerEMA)) * 100;
+	const rvi = (upper / (upper + lower)) * 100;
 	return rvi.toFixed(2);
 };

@@ -7,5 +7,5 @@ exports.EMACalc = (volumes, length) => {
 	for (let i = 1; i < volumes.length; i++) {
 		emaArray.push(alpha * volumes[i] + (1 - alpha) * emaArray[i - 1]);
 	}
-	return emaArray[emaArray.length - 1];
+	return emaArray;
 };
