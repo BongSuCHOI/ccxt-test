@@ -147,6 +147,7 @@ const trailingStop = async () => {
 };
 
 // Average down
+// 순환매 로직 구현 필요
 const averageDown = () => {
 	openPosition();
 	averageDownCount += 1;
@@ -199,32 +200,35 @@ const liveTicker = async () => {
 // Trade signal monitoring
 const signalMonitoring = async () => {
 	// inquire price (bybit 초당 50회)
-	while (true) {
-		const OHLCVdatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
-		const RVI = indicator.RVI(OHLCVdatas, 14);
-		const VO = indicator.VO(OHLCVdatas, 7, 14);
-		const BAB = indicator.BAB(OHLCVdatas, 14, 1);
-		// const CMO = indicator.CMO(OHLCVdatas);
+	const OHLCVdatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
+	const CCI = indicator.CCI(OHLCVdatas, 20);
+	const SLOW_STOCH = indicator.SLOW_STOCH(OHLCVdatas, 14, 85, 15, 3, 3);
 
-		const isBuyRVISignal = RVI < 20;
-		const isBuyVOSignal = VO > 20;
-		const isBuyBABSignal = BAB < -80;
+	// while (true) {
+	// 	const RVI = indicator.RVI(OHLCVdatas, 14);
+	// 	const VO = indicator.VO(OHLCVdatas, 7, 14);
+	// 	const BAB = indicator.BAB(OHLCVdatas, 14, 1);
+	// 	// const CMO = indicator.CMO(OHLCVdatas);
 
-		console.log(`RVI : ${RVI} | BAB : ${BAB} | VO : ${VO}`);
+	// 	const isBuyRVISignal = RVI < 20;
+	// 	const isBuyVOSignal = VO > 20;
+	// 	const isBuyBABSignal = BAB < -80;
 
-		if (isBuyRVISignal && isBuyVOSignal && isBuyBABSignal) {
-			console.log('rvi :', RVI, '/ buy signal :', isBuyRVISignal);
-			console.log('vo :', VO, '/ buy signal :', isBuyVOSignal);
-			console.log('bab :', BAB, '/ buy signal :', isBuyBABSignal);
-			console.log('매수 :', isBuyRVISignal && isBuyVOSignal && isBuyBABSignal);
+	// 	// console.log(`RVI : ${RVI} | BAB : ${BAB} | VO : ${VO}`);
 
-			const lastPrice = OHLCVdatas[OHLCVdatas.length - 1][4];
-			od_side = 'buy';
-			od_price = lastPrice - od_gap;
-			// openPosition();
-			break;
-		}
-	}
+	// 	if (isBuyRVISignal && isBuyVOSignal && isBuyBABSignal) {
+	// 		console.log('rvi :', RVI, '/ buy signal :', isBuyRVISignal);
+	// 		console.log('vo :', VO, '/ buy signal :', isBuyVOSignal);
+	// 		console.log('bab :', BAB, '/ buy signal :', isBuyBABSignal);
+	// 		console.log('매수 :', isBuyRVISignal && isBuyVOSignal && isBuyBABSignal);
+
+	// 		const lastPrice = OHLCVdatas[OHLCVdatas.length - 1][4];
+	// 		od_side = 'buy';
+	// 		od_price = lastPrice - od_gap;
+	// 		// openPosition();
+	// 		break;
+	// 	}
+	// }
 };
 
 // Create open Position
