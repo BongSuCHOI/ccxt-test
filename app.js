@@ -88,7 +88,7 @@ let od_price;
 let od_gap;
 let od_sl_rate;
 let od_ts_rate;
-let od_ts_trigger;
+let od_ts_trigger_rate;
 let od_leverage;
 let od_stop_time;
 let limitAverageDown;
@@ -113,7 +113,7 @@ const setLeverage = async (leverage) => {
 const tradingStopTime = () => {
 	timer = setTimeout(() => {
 		init();
-	}, od_stop_time * 60000);
+	}, od_stop_time * 60 * 1000);
 };
 
 // Create trailing stop
@@ -159,7 +159,7 @@ const liveTicker = async () => {
 	// currunt position info
 	const position = await exchange.fetchPositions([TICKER]);
 	const averagePrice = Number(position[0].info.entry_price);
-	const ts_triggerPrice = averagePrice + od_ts_trigger;
+	const ts_triggerPrice = averagePrice + averagePrice * (od_ts_trigger_rate * 0.001);
 	const sl_TriggerPrice = averagePrice - Math.round(averagePrice * od_sl_rate);
 	const averageDownPrice = averagePrice - Math.round(averagePrice * averageDownRate);
 
@@ -169,7 +169,7 @@ const liveTicker = async () => {
 	console.log('TS 발동 가격 :', ts_triggerPrice);
 	console.log('------------------------------------');
 
-	// inquire price (bybit 초당 50회)
+	// bybit-testnet 초당 20회
 	while (true) {
 		let tickerDetails = await exchange.fetchTicker(TICKER);
 
@@ -199,42 +199,43 @@ const liveTicker = async () => {
 
 // Trade signal monitoring
 const signalMonitoring = async () => {
-	// inquire price (bybit 초당 50회)
-	const OHLCVdatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
-	const CCI = indicator.CCI(OHLCVdatas, 20);
-	const SLOW_STOCH = indicator.SLOW_STOCH(OHLCVdatas, 14, 85, 15, 3, 3);
+	console.log(od_ts_rate);
 
-	// while (true) {
-	// 	const RVI = indicator.RVI(OHLCVdatas, 14);
-	// 	const VO = indicator.VO(OHLCVdatas, 7, 14);
-	// 	const BAB = indicator.BAB(OHLCVdatas, 14, 1);
-	// 	// const CMO = indicator.CMO(OHLCVdatas);
+	// bybit-testnet 초당 20회
+	while (true) {
+		const OHLCVdatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
+		const exceptCurrDatas = OHLCVdatas.slice(0, OHLCVdatas.length - 1);
+		const CCI = indicator.CCI(exceptCurrDatas, 20);
+		const SLOW_STOCH = indicator.SLOW_STOCH(exceptCurrDatas, 14, 85, 15, 3, 3);
 
-	// 	const isBuyRVISignal = RVI < 20;
-	// 	const isBuyVOSignal = VO > 20;
-	// 	const isBuyBABSignal = BAB < -80;
+		// console.log(
+		// 	`CCI : ${CCI} | G_CROSS : ${SLOW_STOCH.goldCross} | OVER_S : ${SLOW_STOCH.OverSold} | D_CROSS : ${SLOW_STOCH.deadCross} | OVER_B : ${SLOW_STOCH.OverBought}`
+		// );
 
-	// 	// console.log(`RVI : ${RVI} | BAB : ${BAB} | VO : ${VO}`);
+		// long
+		if (SLOW_STOCH.goldCross && SLOW_STOCH.OverSold && CCI < -125) {
+			const lastPrice = OHLCVdatas[OHLCVdatas.length - 1][4];
+			od_side = 'buy';
+			od_price = lastPrice - od_gap;
+			openPosition();
+			break;
+		}
 
-	// 	if (isBuyRVISignal && isBuyVOSignal && isBuyBABSignal) {
-	// 		console.log('rvi :', RVI, '/ buy signal :', isBuyRVISignal);
-	// 		console.log('vo :', VO, '/ buy signal :', isBuyVOSignal);
-	// 		console.log('bab :', BAB, '/ buy signal :', isBuyBABSignal);
-	// 		console.log('매수 :', isBuyRVISignal && isBuyVOSignal && isBuyBABSignal);
-
-	// 		const lastPrice = OHLCVdatas[OHLCVdatas.length - 1][4];
-	// 		od_side = 'buy';
-	// 		od_price = lastPrice - od_gap;
-	// 		// openPosition();
-	// 		break;
-	// 	}
-	// }
+		// short
+		if (SLOW_STOCH.deadCross && SLOW_STOCH.OverBought && CCI > 125) {
+			const lastPrice = OHLCVdatas[OHLCVdatas.length - 1][4];
+			od_side = 'sell';
+			od_price = lastPrice - od_gap;
+			openPosition();
+			break;
+		}
+	}
 };
 
 // Create open Position
 const openPosition = async () => {
 	lastTradeDirection = od_side;
-	console.log(od_side, '포지션 오픈');
+	console.log(`포지션 오픈 : ${od_side} | 가격 : ${od_price} | 수량 : ${od_amount}`);
 	await exchange.createOrder(TICKER, od_type, od_side, od_amount, od_price);
 	await liveTicker();
 };
@@ -246,7 +247,7 @@ const closePosition = async (position) => {
 	await exchange.createOrder(TICKER, od_type, closeSide, amount, od_price, {
 		reduceOnly: true,
 	});
-	console.log('포지션 종료 (손절), 수량 :', amount);
+	console.log(`${lastTradeDirection} 포지션 종료 | 가격 : ${od_price} | 수량 : ${amount}`);
 };
 
 // Order setting
@@ -275,33 +276,43 @@ const orderSetting = async (
 	 * od_amount_rate : 0.1 = 10% (포지션 진입 비율)
 	 * od_amount : (전체잔고 * od_amount_rate) / 1 BTC당 레버리지 적용 가격
 	 * od_sl_rate : 0.01 = 1% (손절 비율)
-	 * od_ts_rate = 5; // 1 = 1$ (트레일링 스탑 비율)
-	 * od_ts_trigger = 80; // 1 = 1$ (트레일링 스탑 수치)
-	 * od_stop_time = 1 // 1 = 1분 (거래 종료 후 주문 중지 시간)
-	 * limitAverageDown = 2; // 1 = 1회 (물타기 횟수)
-	 * averageDownRate = 0.003; // 0.01 = 1% (현재 평단 기준 물타기 비율)
+	 * od_ts_rate : 1 = 1$ (트레일링 스탑 비율)
+	 * od_ts_trigger_rate : 1 = 1% (트레일링 스탑 발동 비율)
+	 * od_stop_time : 1 = 1분 (거래 종료 후 주문 중지 시간)
+	 * limitAverageDown : 1 = 1회 (물타기 횟수)
+	 * averageDownRate : 0.01 = 1% (현재 평단 기준 물타기 비율)
 	 */
 	od_type = 'limit'; // market or limit
 	od_gap = 0;
 	od_amount_rate = 0.1;
 	od_amount = (usdtBalance * od_amount_rate) / (curruntPrice / currentLeverage);
-	od_sl_rate = 0.005;
-	od_ts_rate = 5;
-	od_ts_trigger = 80;
-	od_leverage = 5;
-	od_stop_time = 1;
+	// od_sl_rate = 0.02;
+	// od_ts_rate = 10;
+	// od_ts_trigger_rate = 3;
+	od_leverage = 10;
+	od_stop_time = 5;
 	limitAverageDown = 2;
-	averageDownRate = 0.003;
+	// averageDownRate = 0.03;
 
 	if (currentLeverage !== od_leverage) {
 		setLeverage(od_leverage);
 	}
+
+	// test - 포지션 오픈 후 트래킹 중에 익절가 도달시 트레일링 스탑 발동하면서 뭔가 문제가 생기는 것으로 보임
+	od_side = 'buy';
+	od_price = curruntPrice - od_gap;
+	od_sl_rate = 0.005;
+	od_ts_rate = 5;
+	od_ts_trigger_rate = 0.05;
+	averageDownRate = 0.001;
+	openPosition();
 };
 
 async function init() {
-	clearTimeout(timer);
 	// orderSetting('limit', 0, 0.1, 0.005, 5, 80, 5, 1, 2, 0.003)
-	signalMonitoring();
+	clearTimeout(timer);
+	await orderSetting();
+	// await signalMonitoring();
 }
 
 init();
