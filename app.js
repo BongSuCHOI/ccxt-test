@@ -96,12 +96,37 @@ let averageDownRate;
 let averageDownCount = 0;
 let lastTradeDirection;
 let timer;
+let activeClosedOrderId;
 
 // Get balances from the exchange
 const getBalances = async () => {
 	const balance = await exchange.fetchBalance();
 	const usdtBalance = Math.round(balance.free.USDT);
 	return usdtBalance;
+};
+
+// Get last price
+const getLastPrice = async () => {
+	const ticker = await exchange.fetchTicker(TICKER);
+	const latPrice = ticker.last;
+	return latPrice;
+};
+
+// Get ticker positions
+const getPositions = async () => {
+	const position = await exchange.fetchPositions([TICKER]);
+	const longEntryPrice = Number(position[0].info.entry_price);
+	const shortEntryPrice = Number(position[1].info.entry_price);
+	const longAmount = Number(position[0].contracts);
+	const shortAmount = Number(position[1].contracts);
+	const entryLeverage = Number(position[0].info.leverage);
+	return {
+		longEntryPrice,
+		shortEntryPrice,
+		longAmount,
+		shortAmount,
+		entryLeverage,
+	};
 };
 
 // Set leverage
@@ -111,9 +136,25 @@ const setLeverage = async (leverage) => {
 
 // Trading stop time
 const tradingStopTime = () => {
-	timer = setTimeout(() => {
+	console.log(`${od_stop_time}분 거래 중지 시작`);
+	const ms = od_stop_time * 60 * 1000;
+	let recursive_timer;
+
+	timer = setTimeout(async function checkStop() {
+		const { longAmount, shortAmount } = await getPositions();
+
+		if (
+			(lastTradeDirection === 'buy' && longAmount !== 0) ||
+			(lastTradeDirection === 'sell' && shortAmount !== 0)
+		) {
+			console.log(`종료되지 않은 거래가 있어서 다시 ${od_stop_time}분간 거래 중지`);
+			recursive_timer = setTimeout(checkStop, ms);
+		}
+
+		console.log(`${od_stop_time}분 거래 중지 종료`);
+		clearTimeout(recursive_timer);
 		init();
-	}, od_stop_time * 60 * 1000);
+	}, ms);
 };
 
 // Create trailing stop
@@ -127,39 +168,22 @@ const trailingStop = async () => {
 	};
 
 	await exchange.privatePostPrivateLinearPositionTradingStop(trailingParams);
-
-	// binance
-	// const trailingParams = {
-	// 	activationPrice: '20150',
-	// 	callbackRate: '0.5',
-	// };
-	// const trailingSide = od_side === 'buy' ? 'sell' : 'buy';
-	// await exchange.createOrder(
-	// 	TICKER,
-	// 	'TRAILING_STOP_MARKET',
-	// 	trailingSide,
-	// 	amount,
-	// 	price,
-	// 	trailingParams
-	// );
-
 	console.log('트레일링 스탑 시작');
 };
 
 // Average down
-// 순환매 로직 구현 필요
-const averageDown = () => {
-	openPosition();
+const averageDown = async () => {
+	await openPosition();
 	averageDownCount += 1;
 	console.log(`물타기 ${averageDownCount}회`);
 };
 
-// Live price info
-const liveTicker = async () => {
+// Ticker monitoring
+const tickerMonitoring = async () => {
 	// currunt position info
-	const position = await exchange.fetchPositions([TICKER]);
-	const averagePrice = Number(position[0].info.entry_price);
-	const ts_triggerPrice = averagePrice + averagePrice * (od_ts_trigger_rate * 0.001);
+	const { longEntryPrice, shortEntryPrice } = await getPositions();
+	const averagePrice = lastTradeDirection === 'buy' ? longEntryPrice : shortEntryPrice;
+	const ts_triggerPrice = averagePrice + Math.round(averagePrice * (od_ts_trigger_rate * 0.001));
 	const sl_TriggerPrice = averagePrice - Math.round(averagePrice * od_sl_rate);
 	const averageDownPrice = averagePrice - Math.round(averagePrice * averageDownRate);
 
@@ -171,26 +195,28 @@ const liveTicker = async () => {
 
 	// bybit-testnet 초당 20회
 	while (true) {
-		let tickerDetails = await exchange.fetchTicker(TICKER);
+		const lastPrice = await getLastPrice();
 
 		// average down (현재가격 <= 트리거 가격 && 물타기 카운트 횟수 < 물타기 제한 횟수)
-		if (tickerDetails.last <= averageDownPrice && averageDownCount < limitAverageDown) {
-			averageDown();
+		if (lastPrice <= averageDownPrice && averageDownCount < limitAverageDown) {
+			await averageDown();
+			await closePosition(averagePrice);
 			break;
 		}
 
-		// stop loss (현재가격 <= 트리거 가격 && 물타기 카운트 횟수 == 물타기 제한 횟수)
-		if (tickerDetails.last <= sl_TriggerPrice && averageDownCount == limitAverageDown) {
-			console.log('손절가 도달. 실시간 조회 종료');
-			closePosition(position);
+		// stop loss (물타기 카운트 횟수 == 물타기 제한 횟수)
+		if (averageDownCount == limitAverageDown) {
+			console.log('물타기 최대 횟수 도달. SL 주문 생성. 실시간 조회 종료');
+			await closePosition(sl_TriggerPrice, true);
 			tradingStopTime();
 			break;
 		}
 
 		// trigger stop (현재가격 >= 트리거 가격)
-		if (tickerDetails.last >= ts_triggerPrice) {
+		if (lastPrice >= ts_triggerPrice) {
 			console.log('익절가 도달. 실시간 조회 종료');
-			trailingStop();
+			await closePosition(lastPrice);
+			await trailingStop();
 			tradingStopTime();
 			break;
 		}
@@ -199,8 +225,6 @@ const liveTicker = async () => {
 
 // Trade signal monitoring
 const signalMonitoring = async () => {
-	console.log(od_ts_rate);
-
 	// bybit-testnet 초당 20회
 	while (true) {
 		const OHLCVdatas = await exchange.fetchOHLCV('BTC/USDT:USDT', '5m');
@@ -217,7 +241,7 @@ const signalMonitoring = async () => {
 			const lastPrice = OHLCVdatas[OHLCVdatas.length - 1][4];
 			od_side = 'buy';
 			od_price = lastPrice - od_gap;
-			openPosition();
+			await openPosition();
 			break;
 		}
 
@@ -225,28 +249,58 @@ const signalMonitoring = async () => {
 		if (SLOW_STOCH.deadCross && SLOW_STOCH.OverBought && CCI > 125) {
 			const lastPrice = OHLCVdatas[OHLCVdatas.length - 1][4];
 			od_side = 'sell';
-			od_price = lastPrice - od_gap;
-			openPosition();
+			od_price = lastPrice + od_gap;
+			await openPosition();
 			break;
 		}
 	}
+};
+
+// Check if limit order filled
+const checkIfLimitOrderFilled = async () => {
+	// bybit-testnet 초당 20회
+	while (true) {
+		const orders = await exchange.fetchOpenOrders(TICKER);
+		if (orders.length === 0) {
+			await tickerMonitoring();
+			break;
+		}
+	}
+};
+
+// Cancel order
+const cancelOrder = async (orderId) => {
+	await exchange.cancelOrder(orderId, TICKER);
 };
 
 // Create open Position
 const openPosition = async () => {
 	lastTradeDirection = od_side;
 	console.log(`포지션 오픈 : ${od_side} | 가격 : ${od_price} | 수량 : ${od_amount}`);
-	await exchange.createOrder(TICKER, od_type, od_side, od_amount, od_price);
-	await liveTicker();
+	const order = await exchange.createOrder(TICKER, od_type, od_side, od_amount, od_price);
+	await checkIfLimitOrderFilled();
 };
 
 // Create clode position
-const closePosition = async (position) => {
-	const closeSide = od_side === 'buy' ? 'sell' : 'buy';
-	const amount = position[0].contracts;
-	await exchange.createOrder(TICKER, od_type, closeSide, amount, od_price, {
+const closePosition = async (trigger, sl = false) => {
+	if (activeClosedOrderId) {
+		await cancelOrder(activeClosedOrderId, TICKER);
+	}
+
+	const { longAmount, shortAmount } = await getPositions();
+	const closeSide = lastTradeDirection === 'buy' ? 'sell' : 'buy';
+	let amount = lastTradeDirection === 'buy' ? longAmount : shortAmount;
+	let price = trigger;
+
+	if (!sl) {
+		amount = amount / 2;
+	}
+
+	const order = await exchange.createOrder(TICKER, od_type, closeSide, amount, price, {
 		reduceOnly: true,
 	});
+	activeClosedOrderId = order.id;
+
 	console.log(`${lastTradeDirection} 포지션 종료 | 가격 : ${od_price} | 수량 : ${amount}`);
 };
 
@@ -264,12 +318,9 @@ const orderSetting = async (
 	ad_rate
 ) => {
 	await exchange.loadMarkets();
-
-	const position = await exchange.fetchPositions([TICKER]);
-	const ticker = await exchange.fetchTicker(TICKER);
+	const lastPrice = await getLastPrice();
 	const usdtBalance = await getBalances();
-	const currentLeverage = position[0].leverage;
-	const curruntPrice = ticker.last;
+	const { entryLeverage } = await getPositions();
 
 	/**
 	 * od_gap : 현재 가격 기준 리밋 주문 가격 넣을 간격 // 현재가격 100, od_gap 10, 리밋롱주문 90, 리밋숏주문 110
@@ -285,7 +336,7 @@ const orderSetting = async (
 	od_type = 'limit'; // market or limit
 	od_gap = 0;
 	od_amount_rate = 0.1;
-	od_amount = (usdtBalance * od_amount_rate) / (curruntPrice / currentLeverage);
+	od_amount = (usdtBalance * od_amount_rate) / (lastPrice / entryLeverage);
 	// od_sl_rate = 0.02;
 	// od_ts_rate = 10;
 	// od_ts_trigger_rate = 3;
@@ -294,18 +345,18 @@ const orderSetting = async (
 	limitAverageDown = 2;
 	// averageDownRate = 0.03;
 
-	if (currentLeverage !== od_leverage) {
-		setLeverage(od_leverage);
+	if (entryLeverage != od_leverage) {
+		await setLeverage(od_leverage);
 	}
 
-	// test - 포지션 오픈 후 트래킹 중에 익절가 도달시 트레일링 스탑 발동하면서 뭔가 문제가 생기는 것으로 보임
+	// test
 	od_side = 'buy';
-	od_price = curruntPrice - od_gap;
-	od_sl_rate = 0.005;
+	od_price = lastPrice - od_gap;
+	od_sl_rate = 0.0001;
 	od_ts_rate = 5;
-	od_ts_trigger_rate = 0.05;
-	averageDownRate = 0.001;
-	openPosition();
+	od_ts_trigger_rate = 0.1;
+	averageDownRate = 0.00005;
+	// await openPosition();
 };
 
 async function init() {
