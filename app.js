@@ -80,23 +80,23 @@ if (TEST_MODE) {
 //
 
 // order config
-let od_type;
-let od_side;
-let od_amount;
-let od_amount_rate;
-let od_price;
-let od_gap;
-let od_sl_rate;
-let od_ts_rate;
-let od_ts_trigger_rate;
-let od_leverage;
-let od_stop_time;
-let limitAverageDown;
-let averageDownRate;
+let od_type = 'limit';
+let od_side = 'buy';
+let od_amount; // orderSetting()에서 계산
+let od_amount_rate = 0.1;
+let od_price; // 오더 생성시 od_gap과 closePrice로 계산
+let od_gap = 0;
+let od_sl_rate = 0;
+let od_ts_rate = 0;
+let od_ts_trigger_rate = 0;
+let od_leverage = 1;
+let od_stop_time = 10;
+let limitAverageDown = 0;
+let averageDownRate = 0.03;
 let averageDownCount = 0;
-let lastTradeDirection;
+let lastTradeDirection = '';
+let activeAGDOrderId = '';
 let timer;
-let activeClosedOrderId;
 
 // Get balances from the exchange
 const getBalances = async () => {
@@ -144,16 +144,16 @@ const tradingStopTime = () => {
 		const { longAmount, shortAmount } = await getPositions();
 
 		if (
-			(lastTradeDirection === 'buy' && longAmount !== 0) ||
-			(lastTradeDirection === 'sell' && shortAmount !== 0)
+			(lastTradeDirection === 'buy' && longAmount === 0) ||
+			(lastTradeDirection === 'sell' && shortAmount === 0)
 		) {
+			console.log(`${od_stop_time}분 거래 중지 종료`);
+			clearTimeout(recursive_timer);
+			init();
+		} else {
 			console.log(`포지션이 남아있어서 다시 ${od_stop_time}분간 거래 중지`);
 			recursive_timer = setTimeout(checkStop, ms);
 		}
-
-		console.log(`${od_stop_time}분 거래 중지 종료`);
-		clearTimeout(recursive_timer);
-		init();
 	}, ms);
 };
 
@@ -176,9 +176,12 @@ const averageDown = async (price) => {
 	averageDownCount += 1;
 	console.log(`물타기 ${averageDownCount}회`);
 	await openPosition(true);
+	if (activeAGDOrderId.length > 0) {
+		await cancelOrder(activeAGDOrderId, TICKER);
+	}
 	while (true) {
 		if (await checkIfLimitOrderFilled()) {
-			await closePosition(price);
+			await closePosition(price, 'adg');
 			await tickerMonitoring();
 			break;
 		}
@@ -206,14 +209,15 @@ const tickerMonitoring = async () => {
 
 		// average down (현재가격 <= 트리거 가격 && 물타기 카운트 횟수 < 물타기 제한 횟수)
 		if (lastPrice <= averageDownPrice && averageDownCount < limitAverageDown) {
-			await averageDown(averagePrice);
+			const price = lastTradeDirection === 'buy' ? averagePrice + 3 : averagePrice - 3;
+			await averageDown(price);
 			break;
 		}
 
 		// stop loss (물타기 카운트 횟수 == 물타기 제한 횟수)
 		if (averageDownCount == limitAverageDown) {
 			console.log('물타기 최대 횟수 도달. SL 주문 생성. 실시간 조회 종료');
-			await closePosition(sl_TriggerPrice, true);
+			await closePosition(sl_TriggerPrice, 'sl');
 			tradingStopTime();
 			break;
 		}
@@ -221,7 +225,8 @@ const tickerMonitoring = async () => {
 		// trigger stop (현재가격 >= 트리거 가격)
 		if (lastPrice >= ts_triggerPrice) {
 			console.log('익절가 도달. 실시간 조회 종료');
-			await closePosition(lastPrice);
+			const price = lastTradeDirection === 'buy' ? lastPrice - 0.5 : lastPrice + 0.5;
+			await closePosition(price);
 			await trailingStop();
 			tradingStopTime();
 			break;
@@ -270,7 +275,9 @@ const checkIfLimitOrderFilled = async () => {
 
 // Cancel order
 const cancelOrder = async (orderId) => {
+	console.log('이전 순환매(평단에서 추가 진입 수량 정리)주문 취소');
 	await exchange.cancelOrder(orderId, TICKER);
+	activeAGDOrderId = '';
 };
 
 // Create open Position
@@ -288,24 +295,23 @@ const openPosition = async (isAverageDown = false) => {
 };
 
 // Create clode position
-const closePosition = async (trigger, sl = false) => {
-	if (activeClosedOrderId) {
-		await cancelOrder(activeClosedOrderId, TICKER);
-	}
-
+const closePosition = async (trigger, type) => {
 	const { longAmount, shortAmount } = await getPositions();
 	const closeSide = lastTradeDirection === 'buy' ? 'sell' : 'buy';
 	let amount = lastTradeDirection === 'buy' ? longAmount : shortAmount;
 	let price = trigger;
 
-	if (!sl) {
+	if (type !== 'sl') {
 		amount = amount / 2;
 	}
 
 	const order = await exchange.createOrder(TICKER, od_type, closeSide, amount, price, {
 		reduceOnly: true,
 	});
-	activeClosedOrderId = order.id;
+
+	if (type === 'adg') {
+		activeAGDOrderId = order.id;
+	}
 
 	console.log(`${lastTradeDirection} 포지션 종료 | 가격 : ${od_price} | 수량 : ${amount}`);
 };
@@ -356,13 +362,13 @@ const orderSetting = async (
 	}
 
 	// test
-	od_side = 'buy';
+	od_side = 'sell';
 	od_price = lastPrice - od_gap;
 	od_sl_rate = 0.0001;
 	od_ts_rate = 5;
 	od_ts_trigger_rate = 0.1;
 	averageDownRate = 0.00005;
-	// await openPosition();
+	await openPosition();
 };
 
 async function init() {
