@@ -147,7 +147,7 @@ const tradingStopTime = () => {
 			(lastTradeDirection === 'buy' && longAmount !== 0) ||
 			(lastTradeDirection === 'sell' && shortAmount !== 0)
 		) {
-			console.log(`종료되지 않은 거래가 있어서 다시 ${od_stop_time}분간 거래 중지`);
+			console.log(`포지션이 남아있어서 다시 ${od_stop_time}분간 거래 중지`);
 			recursive_timer = setTimeout(checkStop, ms);
 		}
 
@@ -172,10 +172,17 @@ const trailingStop = async () => {
 };
 
 // Average down
-const averageDown = async () => {
-	await openPosition();
+const averageDown = async (price) => {
 	averageDownCount += 1;
 	console.log(`물타기 ${averageDownCount}회`);
+	await openPosition(true);
+	while (true) {
+		if (await checkIfLimitOrderFilled()) {
+			await closePosition(price);
+			await tickerMonitoring();
+			break;
+		}
+	}
 };
 
 // Ticker monitoring
@@ -199,8 +206,7 @@ const tickerMonitoring = async () => {
 
 		// average down (현재가격 <= 트리거 가격 && 물타기 카운트 횟수 < 물타기 제한 횟수)
 		if (lastPrice <= averageDownPrice && averageDownCount < limitAverageDown) {
-			await averageDown();
-			await closePosition(averagePrice);
+			await averageDown(averagePrice);
 			break;
 		}
 
@@ -258,14 +264,8 @@ const signalMonitoring = async () => {
 
 // Check if limit order filled
 const checkIfLimitOrderFilled = async () => {
-	// bybit-testnet 초당 20회
-	while (true) {
-		const orders = await exchange.fetchOpenOrders(TICKER);
-		if (orders.length === 0) {
-			await tickerMonitoring();
-			break;
-		}
-	}
+	const orders = await exchange.fetchOpenOrders(TICKER);
+	return orders.length === 0;
 };
 
 // Cancel order
@@ -274,11 +274,17 @@ const cancelOrder = async (orderId) => {
 };
 
 // Create open Position
-const openPosition = async () => {
+const openPosition = async (isAverageDown = false) => {
 	lastTradeDirection = od_side;
 	console.log(`포지션 오픈 : ${od_side} | 가격 : ${od_price} | 수량 : ${od_amount}`);
 	const order = await exchange.createOrder(TICKER, od_type, od_side, od_amount, od_price);
-	await checkIfLimitOrderFilled();
+
+	while (!isAverageDown) {
+		if (await checkIfLimitOrderFilled()) {
+			await tickerMonitoring();
+			break;
+		}
+	}
 };
 
 // Create clode position
