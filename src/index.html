@@ -6,10 +6,88 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Document</title>
+    <link rel="stylesheet" type="text/css" href="./reset.css">
+    <link rel="stylesheet" type="text/css" href="./style.css">
 </head>
 
 <body>
-    <p>asdsadsadasdasds</p>
+    <main id="bot-contents-wrap">
+        <section id="seed-box">
+            <div class="init-seed">
+                <p>초기 시드 : 0$</p>
+            </div>
+            <div class="curr-seed">
+                <p>현재 시드 : <span class="usd"></span>$</p>
+            </div>
+        </section>
+        <section id="live-indicator-box">
+            <p>Live Indicator</p>
+            <div>
+                <p>CCI : <span class="cci">100</span></p>
+                <p>STC K : <span class="stochastic-k">100</span></p>
+                <p>STC D : <span class="stochastic-d">100</span></p>
+                <p>KD CROSS : <span class="stochastic-d">no</span></p>
+            </div>
+        </section>
+        <section id="signal-history-box">
+            <p>Signal History</p>
+            <ul>
+                <li>
+                    <p>1026 17:05 매수 시그널 발생</p>
+                    <div>
+                        <p>CCI : <span class="cci">100</span></p>
+                        <p>STC K : <span class="stochastic-k">100</span></p>
+                        <p>STC D : <span class="stochastic-d">100</span></p>
+                        <p>KD CROSS : <span class="stochastic-d">no</span></p>
+                    </div>
+                </li>
+                <li>
+                    <p>1026 13:11 매도 시그널 발생</p>
+                    <div>
+                        <p>CCI : <span class="cci">100</span></p>
+                        <p>STC K : <span class="stochastic-k">100</span></p>
+                        <p>STC D : <span class="stochastic-d">100</span></p>
+                        <p>KD CROSS : <span class="stochastic-d">no</span></p>
+                    </div>
+                </li>
+            </ul>
+        </section>
+        <section id="position-box">
+            <p>Positions</p>
+            <ul>
+                <li>
+                    <p>Long</p>
+                    <p>1.238 BTC</p>
+                    <p>20,432.5$</p>
+                    <p>20,450$</p>
+                    <p>+5.43%</p>
+                </li>
+                <li>
+                    <p>Long</p>
+                    <p>1.238 BTC</p>
+                    <p>20,432.5$</p>
+                    <p>20,450$</p>
+                    <p>+5.43%</p>
+                </li>
+            </ul>
+        </section>
+        <section id="order-box">
+            <p>Orders</p>
+            <ul>
+                <li>
+                    <p>Long</p>
+                    <p>1.238 BTC</p>
+                    <p>20,432.5$</p>
+                </li>
+            </ul>
+        </section>
+        <!-- 오더 히스토리 -->
+        <section id="history-box"></section>
+        <!-- 타임라인 (ex. 몇시몇분 무슨 포지션 가격 사이즈 오픈) -->
+        <section id="timeline-box"></section>
+    </main>
+
+    <!-- script -->
     <script src="./main.js"></script>
 </body>
 

@@ -1,0 +1,101 @@
+#bot-contents-wrap {
+	width: 100vw;
+	min-height: 100vh;
+	padding: 40px 0;
+	background-color: #f0f0f0;
+}
+
+section {
+	max-width: 70%;
+	margin: 0 auto 20px;
+	padding: 20px;
+	font-size: 18px;
+	background-color: #fff;
+	border-radius: 20px;
+	box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.02);
+}
+section:last-child {
+	margin-bottom: 0;
+}
+
+#seed-box {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+#live-indicator-box {
+	text-align: center;
+}
+
+#live-indicator-box > p {
+	margin-bottom: 20px;
+	font-weight: bold;
+}
+
+#live-indicator-box > div {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+#signal-history-box {
+	text-align: center;
+}
+
+#signal-history-box > p {
+	margin-bottom: 20px;
+	font-weight: bold;
+}
+
+#signal-history-box > ul li {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding-bottom: 10px;
+	margin-bottom: 10px;
+	border-bottom: 1px solid #bbb;
+}
+
+#signal-history-box > ul li:last-child {
+	padding-bottom: 0;
+	margin-bottom: 0;
+	border-bottom: none;
+}
+
+#signal-history-box > ul li div {
+	display: flex;
+	align-items: center;
+}
+
+#signal-history-box > ul li div p {
+	margin-right: 20px;
+}
+
+#signal-history-box > ul li div p:last-of-type {
+	margin-right: 0;
+}
+
+#position-box > p,
+#order-box > p {
+	margin-bottom: 20px;
+	text-align: center;
+	font-weight: bold;
+}
+
+#position-box > ul li,
+#order-box > ul li {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding-bottom: 10px;
+	margin-bottom: 10px;
+	border-bottom: 1px solid #bbb;
+}
+
+#position-box > ul li:last-child,
+#order-box > ul li:last-child {
+	padding-bottom: 0;
+	margin-bottom: 0;
+	border-bottom: none;
+}
