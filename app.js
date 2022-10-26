@@ -276,7 +276,11 @@ const checkIfLimitOrderFilled = async () => {
 // Cancel order
 const cancelOrder = async (orderId) => {
 	console.log('이전 순환매(평단에서 추가 진입 수량 정리)주문 취소');
-	await exchange.cancelOrder(orderId, TICKER);
+	const openOrders = await exchange.fetchOpenOrders(TICKER);
+	const isOpenOrder = openOrders.filter((order) => order.id === orderId);
+	if (isOpenOrder.length > 0) {
+		await exchange.cancelOrder(orderId, TICKER);
+	}
 	activeAGDOrderId = '';
 };
 
