@@ -193,9 +193,18 @@ const tickerMonitoring = async () => {
 	// currunt position info
 	const { longEntryPrice, shortEntryPrice } = await getPositions();
 	const averagePrice = lastTradeDirection === 'buy' ? longEntryPrice : shortEntryPrice;
-	const ts_triggerPrice = averagePrice + Math.round(averagePrice * (od_ts_trigger_rate * 0.001));
-	const sl_TriggerPrice = averagePrice - Math.round(averagePrice * od_sl_rate);
-	const averageDownPrice = averagePrice - Math.round(averagePrice * averageDownRate);
+	const ts_triggerPrice =
+		lastTradeDirection === 'buy'
+			? averagePrice + Math.round(averagePrice * (od_ts_trigger_rate * 0.001))
+			: averagePrice - Math.round(averagePrice * (od_ts_trigger_rate * 0.001));
+	const sl_TriggerPrice =
+		lastTradeDirection === 'buy'
+			? averagePrice - Math.round(averagePrice * od_sl_rate)
+			: averagePrice + Math.round(averagePrice * od_sl_rate);
+	const averageDownPrice =
+		lastTradeDirection === 'buy'
+			? averagePrice - Math.round(averagePrice * averageDownRate)
+			: averagePrice + Math.round(averagePrice * averageDownRate);
 
 	console.log('현재 평단 :', averagePrice);
 	console.log('물타기 가격 :', averageDownPrice);
@@ -209,8 +218,9 @@ const tickerMonitoring = async () => {
 
 		// average down (현재가격 <= 트리거 가격 && 물타기 카운트 횟수 < 물타기 제한 횟수)
 		if (lastPrice <= averageDownPrice && averageDownCount < limitAverageDown) {
-			const price = lastTradeDirection === 'buy' ? averagePrice + 3 : averagePrice - 3;
-			await averageDown(price);
+			const closePrice = lastTradeDirection === 'buy' ? averagePrice + 3 : averagePrice - 3;
+			od_price = lastTradeDirection === 'buy' ? lastPrice - 3 : lastPrice + 3;
+			await averageDown(closePrice);
 			break;
 		}
 
@@ -225,8 +235,8 @@ const tickerMonitoring = async () => {
 		// trigger stop (현재가격 >= 트리거 가격)
 		if (lastPrice >= ts_triggerPrice) {
 			console.log('익절가 도달. 실시간 조회 종료');
-			const price = lastTradeDirection === 'buy' ? lastPrice - 0.5 : lastPrice + 0.5;
-			await closePosition(price);
+			const closePrice = lastTradeDirection === 'buy' ? lastPrice - 0.5 : lastPrice + 0.5;
+			await closePosition(closePrice);
 			await trailingStop();
 			tradingStopTime();
 			break;
@@ -351,7 +361,7 @@ const orderSetting = async (
 	 */
 	od_type = 'limit'; // market or limit
 	od_gap = 0;
-	od_amount_rate = 0.1;
+	od_amount_rate = 0.01;
 	od_amount = (usdtBalance * od_amount_rate) / (lastPrice / entryLeverage);
 	// od_sl_rate = 0.02;
 	// od_ts_rate = 10;
@@ -369,7 +379,7 @@ const orderSetting = async (
 	od_side = 'sell';
 	od_price = lastPrice - od_gap;
 	od_sl_rate = 0.0001;
-	od_ts_rate = 5;
+	od_ts_rate = 1;
 	od_ts_trigger_rate = 0.1;
 	averageDownRate = 0.00005;
 	await openPosition();
