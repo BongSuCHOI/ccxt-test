@@ -147,7 +147,7 @@ const tradingStopTime = () => {
 			(lastTradeDirection === 'buy' && longAmount === 0) ||
 			(lastTradeDirection === 'sell' && shortAmount === 0)
 		) {
-			console.log(`${od_stop_time}분 거래 중지 종료`);
+			console.log(`${od_stop_time}분이 지나서 다시 거래를 시작합니다`);
 			clearTimeout(recursive_timer);
 			init();
 		} else {
@@ -218,9 +218,10 @@ const tickerMonitoring = async () => {
 
 		// average down (현재가격 <= 트리거 가격 && 물타기 카운트 횟수 < 물타기 제한 횟수)
 		if (lastPrice <= averageDownPrice && averageDownCount < limitAverageDown) {
-			const closePrice = lastTradeDirection === 'buy' ? averagePrice + 3 : averagePrice - 3;
+			const halfClosePrice =
+				lastTradeDirection === 'buy' ? averagePrice + 3 : averagePrice - 3;
 			od_price = lastTradeDirection === 'buy' ? lastPrice - 3 : lastPrice + 3;
-			await averageDown(closePrice);
+			await averageDown(halfClosePrice);
 			break;
 		}
 
@@ -387,6 +388,8 @@ const orderSetting = async (
 
 async function init() {
 	// orderSetting('limit', 0, 0.1, 0.005, 5, 80, 5, 1, 2, 0.003)
+	averageDownCount = 0;
+	activeAGDOrderId = '';
 	clearTimeout(timer);
 	await orderSetting();
 	// await signalMonitoring();
