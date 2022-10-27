@@ -1,32 +1,48 @@
-const express = require('express');
-const ccxt = require('ccxt');
 const dotenv = require('dotenv');
+const express = require('express');
+const app = express().use(express.json());
+const server = require('http').createServer(app);
+const { Server } = require('socket.io');
+const io = new Server(server);
+const ccxt = require('ccxt');
 const { indicator } = require('./src/indicators/index');
 
 // Setup
 dotenv.config();
-const app = express().use(express.json());
 const PORT = process.env.PORT;
 
 // Connect html, js
 app.get('/', (req, res) => {
 	res.sendFile(__dirname + '/src/index.html');
 });
-
 app.use(express.static('src'));
 
-app.listen(PORT, () => {
+server.listen(PORT, () => {
 	console.log(`🚀 Server running on port ${PORT}`);
 });
 
-// Catch the webhook
-// app.post('/webhook', (req, res) => {
-// 	// console.log(req.body);
-// 	handleTrade(req, res);
-// });
+// socket.io test
+io.on('connection', async (socket) => {
+	console.log('소켓 연결 성공!');
 
-// Tradingview webhook message에 포함 된 auth_id와 동일한 auth_id
-// const AUTH_ID = process.env.AUTH_ID;
+	// current seed
+	const currSeed = await getBalances();
+	io.emit('seed', currSeed);
+
+	// trading start
+	socket.on('trading start', (bool) => {
+		if (bool) {
+			tradingStart();
+		}
+	});
+
+	// trading stop
+	socket.on('trading stop', (bool) => {
+		if (bool) {
+			// tradingStart();
+		}
+	});
+});
 
 // Set end variable
 const EXCHANGE = process.env.EXCHANGE;
@@ -62,18 +78,6 @@ if (TEST_MODE) {
 		console.log("WARNING: You didn't set an API key and secret for this env");
 	}
 }
-
-// Checks webhook carries a valid ID
-// const handleTrade = (req, res) => {
-// 	let json = req.body;
-// 	if (json.auth_id === AUTH_ID) {
-// 		// orderSetting(json);
-// 		res.status(200).end();
-// 	} else {
-// 		console.log('401 UNAUTHORIZED', json);
-// 		res.status(401).end();
-// 	}
-// };
 
 //
 // === Custom exchange trade methods ===
@@ -149,7 +153,7 @@ const tradingStopTime = () => {
 		) {
 			console.log(`${od_stop_time}분이 지나서 다시 거래를 시작합니다`);
 			clearTimeout(recursive_timer);
-			init();
+			tradingStart();
 		} else {
 			console.log(`포지션이 남아있어서 다시 ${od_stop_time}분간 거래 중지`);
 			recursive_timer = setTimeout(checkStop, ms);
@@ -254,9 +258,8 @@ const signalMonitoring = async () => {
 		const CCI = indicator.CCI(exceptCurrDatas, 20);
 		const SLOW_STOCH = indicator.SLOW_STOCH(exceptCurrDatas, 14, 85, 15, 3, 3);
 
-		// console.log(
-		// 	`CCI : ${CCI} | G_CROSS : ${SLOW_STOCH.goldCross} | OVER_S : ${SLOW_STOCH.OverSold} | D_CROSS : ${SLOW_STOCH.deadCross} | OVER_B : ${SLOW_STOCH.OverBought}`
-		// );
+		// socket
+		io.emit('indicator', { CCI, SLOW_STOCH });
 
 		// long
 		if (SLOW_STOCH.goldCross && SLOW_STOCH.OverSold && CCI < -125) {
@@ -264,6 +267,7 @@ const signalMonitoring = async () => {
 			od_side = 'buy';
 			od_price = lastPrice - od_gap;
 			await openPosition();
+			io.emit('buy signal history', { CCI, SLOW_STOCH, SIDE: 'BUY', DATE: new Date() });
 			break;
 		}
 
@@ -273,6 +277,7 @@ const signalMonitoring = async () => {
 			od_side = 'sell';
 			od_price = lastPrice + od_gap;
 			await openPosition();
+			io.emit('sell signal history', { CCI, SLOW_STOCH, SIDE: 'SELL', DATE: new Date() });
 			break;
 		}
 	}
@@ -386,16 +391,14 @@ const orderSetting = async (
 	await openPosition();
 };
 
-async function init() {
-	// orderSetting('limit', 0, 0.1, 0.005, 5, 80, 5, 1, 2, 0.003)
+async function tradingStart() {
+	console.log('tradingStart!');
 	averageDownCount = 0;
 	activeAGDOrderId = '';
-	clearTimeout(timer);
-	await orderSetting();
-	// await signalMonitoring();
+	// clearTimeout(timer);
+	// await orderSetting();
+	await signalMonitoring();
 }
-
-init();
 
 /**
  * InvalidNonce: bybit {"ret_code":10002,"ret_msg":"invalid request,please check your server timestamp or recv_window param","ext_code":"","result":null,"ext_info":null,"time_now":1665457425564}

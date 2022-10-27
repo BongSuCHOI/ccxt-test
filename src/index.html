@@ -12,21 +12,25 @@
 
 <body>
     <main id="bot-contents-wrap">
+        <section id="trade-btn-box">
+            <button class="trade-start-btn">Start</button>
+            <button class="trade-stop-btn">Stop</button>
+        </section>
         <section id="seed-box">
             <div class="init-seed">
                 <p>초기 시드 : 0$</p>
             </div>
             <div class="curr-seed">
-                <p>현재 시드 : <span class="usd"></span>$</p>
+                <p>현재 시드 : <span class="usd">0</span>$</p>
             </div>
         </section>
         <section id="live-indicator-box">
             <p>Live Indicator</p>
             <div>
-                <p>CCI : <span class="cci">100</span></p>
-                <p>STC K : <span class="stochastic-k">100</span></p>
-                <p>STC D : <span class="stochastic-d">100</span></p>
-                <p>KD CROSS : <span class="stochastic-d">no</span></p>
+                <p>CCI : <span class="cci">0</span></p>
+                <p>STC K : <span class="stochastic-k">0</span></p>
+                <p>STC D : <span class="stochastic-d">0</span></p>
+                <p>KD CROSS : <span class="stochastic-cross">no</span></p>
             </div>
         </section>
         <section id="signal-history-box">
@@ -38,7 +42,7 @@
                         <p>CCI : <span class="cci">100</span></p>
                         <p>STC K : <span class="stochastic-k">100</span></p>
                         <p>STC D : <span class="stochastic-d">100</span></p>
-                        <p>KD CROSS : <span class="stochastic-d">no</span></p>
+                        <p>KD CROSS : <span class="stochastic-cross">no</span></p>
                     </div>
                 </li>
                 <li>
@@ -47,7 +51,7 @@
                         <p>CCI : <span class="cci">100</span></p>
                         <p>STC K : <span class="stochastic-k">100</span></p>
                         <p>STC D : <span class="stochastic-d">100</span></p>
-                        <p>KD CROSS : <span class="stochastic-d">no</span></p>
+                        <p>KD CROSS : <span class="stochastic-cross">no</span></p>
                     </div>
                 </li>
             </ul>
@@ -88,6 +92,7 @@
     </main>
 
     <!-- script -->
+    <script src="/socket.io/socket.io.js"></script>
     <script src="./main.js"></script>
 </body>
 

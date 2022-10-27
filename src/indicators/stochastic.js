@@ -82,5 +82,5 @@ exports.SLOW_STOCH = (datas, length = 14, bought = 80, sold = 20, smoothK = 3, s
 	}
 
 	// return { currK, prevK, currD, prevD };
-	return { goldCross, deadCross, OverSold, OverBought };
+	return { currK, currD, goldCross, deadCross, OverSold, OverBought };
 };

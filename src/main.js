@@ -1,7 +1,25 @@
-const test = async () => {
-	const res = await fetch('https://1e0d-14-39-88-52.jp.ngrok.io/asd');
-	const data = await res.text();
-	console.log(data);
-};
+const socket = io();
 
-test().then((res) => console.log(res));
+socket.on('seed', (seed) => {
+	const seedBox = document.querySelector('#seed-box .curr-seed .usd');
+	seedBox.innerHTML = seed;
+});
+
+const tradeStartBtn = document.querySelector('.trade-start-btn');
+tradeStartBtn.addEventListener('click', () => {
+	socket.emit('trading start', true);
+});
+
+socket.on('indicator', ({ CCI, SLOW_STOCH }) => {
+	const cciBox = document.querySelector('#live-indicator-box .cci');
+	const kBox = document.querySelector('#live-indicator-box .stochastic-k');
+	const dBox = document.querySelector('#live-indicator-box .stochastic-d');
+	const crossBox = document.querySelector('#live-indicator-box .stochastic-cross');
+	const { currK, currD, goldCross } = SLOW_STOCH;
+	const cross = goldCross ? 'GOLD' : 'DEAD';
+
+	cciBox.innerHTML = CCI;
+	kBox.innerHTML = currK.toFixed(2);
+	dBox.innerHTML = currD.toFixed(2);
+	crossBox.innerHTML = cross;
+});
