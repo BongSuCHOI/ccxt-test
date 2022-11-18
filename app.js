@@ -285,6 +285,8 @@ const signalMonitoring = async () => {
 
 // Check if limit order filled
 const checkIfLimitOrderFilled = async () => {
+	// 이거 도는 도중에 익절가 도달하거나 손절가 도달하면 주문 넣는 로직 추가.
+	// 지금은 그냥 하염없이 익절가 넘어도 체크함
 	const orders = await exchange.fetchOpenOrders(TICKER);
 	return orders.length === 0;
 };
@@ -302,6 +304,7 @@ const cancelOrder = async (orderId) => {
 
 // Create open Position
 const openPosition = async (isAverageDown = false) => {
+	// 포지션이 열리고 15분가량 체결이 안되면 처음부터 다시 시작
 	lastTradeDirection = od_side;
 	console.log(`포지션 오픈 : ${od_side} | 가격 : ${od_price} | 수량 : ${od_amount}`);
 	const order = await exchange.createOrder(TICKER, od_type, od_side, od_amount, od_price);
@@ -395,9 +398,9 @@ async function tradingStart() {
 	console.log('tradingStart!');
 	averageDownCount = 0;
 	activeAGDOrderId = '';
-	// clearTimeout(timer);
-	// await orderSetting();
-	await signalMonitoring();
+	clearTimeout(timer);
+	await orderSetting();
+	// await signalMonitoring();
 }
 
 /**
